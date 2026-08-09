@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 中长跑周期训练计划生成器</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <nav class="nav">
+      <div class="brand">
+        <span class="brand-mark">RUN</span>
+        <span>AI 中长跑训练系统</span>
+      </div>
+      <a href="#generator" class="nav-link">开始生成</a>
+    </nav>
+    <section class="hero-grid">
+      <div>
+        <p class="eyebrow">800m · 1500m · 3000m · 5000m</p>
+        <h1>根据个人能力，生成周期性跑步训练计划</h1>
+        <p class="hero-copy">
+          输入目标项目、当前成绩、训练周期、训练条件和进一步需求，系统会完成能力分析、短板判断、动态调整和每日训练安排。
+        </p>
+        <div class="hero-actions">
+          <a class="primary-button" href="#generator">填写训练信息</a>
+          <a class="secondary-button" href="#model">查看模型逻辑</a>
+        </div>
+      </div>
+      <div class="hero-card">
+        <div class="metric">
+          <span>训练阶段</span>
+          <strong>基础期 → 强化期 → 专项期 → 调整期</strong>
+        </div>
+        <div class="metric">
+          <span>能力指标</span>
+          <strong>速度、速度耐力、乳酸、VO₂max、有氧、力量</strong>
+        </div>
+        <div class="metric">
+          <span>输出内容</span>
+          <strong>评分、短板、周计划、每日安排、调整建议</strong>
+        </div>
+      </div>
+    </section>
+  </header>
+
+  <main>
+    <section id="generator" class="panel layout">
+      <form id="planForm" class="form-card">
+        <div class="section-title">
+          <p class="eyebrow">Step 1</p>
+          <h2>输入训练需求</h2>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            目标项目
+            <select id="event" required>
+              <option value="800">800 米</option>
+              <option value="1500">1500 米</option>
+              <option value="3000">3000 米</option>
+              <option value="5000">5000 米</option>
+            </select>
+          </label>
+
+          <label>
+            训练周期（周）
+            <input id="weeks" type="number" min="4" max="24" value="12" required />
+          </label>
+
+          <label>
+            目标成绩
+            <input id="goalTime" placeholder="如 2:05 / 4:30 / 18:00" required />
+          </label>
+
+          <label>
+            每周训练天数
+            <select id="daysPerWeek">
+              <option value="4">4 天</option>
+              <option value="5" selected>5 天</option>
+              <option value="6">6 天</option>
+            </select>
+          </label>
+
+          <label>
+            400m 当前成绩
+            <input id="time400" placeholder="如 58" />
+          </label>
+
+          <label>
+            600m 当前成绩
+            <input id="time600" placeholder="如 1:35" />
+          </label>
+
+          <label>
+            800m 当前成绩
+            <input id="time800" placeholder="如 2:12" />
+          </label>
+
+          <label>
+            1500m 当前成绩
+            <input id="time1500" placeholder="如 4:50" />
+          </label>
+
+          <label>
+            3000m 当前成绩
+            <input id="time3000" placeholder="如 10:45" />
+          </label>
+
+          <label>
+            5000m 当前成绩
+            <input id="time5000" placeholder="如 19:30" />
+          </label>
+
+          <label>
+            10km 当前成绩
+            <input id="time10000" placeholder="如 42:00" />
+          </label>
+
+          <label>
+            力量能力自评
+            <select id="strength">
+              <option value="50">较弱</option>
+              <option value="65" selected>一般</option>
+              <option value="80">较好</option>
+              <option value="92">很好</option>
+            </select>
+          </label>
+
+          <label>
+            最长轻松跑距离（km）
+            <input id="longRun" type="number" min="3" max="30" value="8" />
+          </label>
+
+          <label>
+            恢复能力
+            <select id="recovery">
+              <option value="low">恢复慢</option>
+              <option value="normal" selected>正常</option>
+              <option value="high">恢复快</option>
+            </select>
+          </label>
+
+          <label>
+            伤病风险
+            <select id="injuryRisk">
+              <option value="low" selected>低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="full-field">
+          进一步需求 / 近期反馈
+          <textarea id="additionalNeeds" rows="5" placeholder="例如：最近小腿有点紧，想降低强度；或者希望加强速度耐力和最后 300m 冲刺；也可以写时间比较紧、想少做力量、想增加有氧等。"></textarea>
+        </label>
+
+        <button class="primary-button full" type="submit">生成训练计划</button>
+        <p class="form-note">时间支持秒数或“分:秒”格式。进一步需求会用于动态调整训练强度、负荷、重点和每日内容。</p>
+      </form>
+
+      <aside class="output-card" id="summary">
+        <div class="empty-state">
+          <h2>等待生成</h2>
+          <p>填写左侧信息后，这里会展示能力雷达、短板判断和训练周期摘要。</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="panel" id="resultsPanel" hidden>
+      <div class="section-title">
+        <p class="eyebrow">Step 2</p>
+        <h2>周期训练计划</h2>
+      </div>
+      <div id="phaseTimeline" class="timeline"></div>
+      <div id="weeklyPlan" class="week-grid"></div>
+    </section>
+
+    <section class="panel model" id="model">
+      <div class="section-title">
+        <p class="eyebrow">Model</p>
+        <h2>训练模型逻辑</h2>
+      </div>
+      <div class="model-grid">
+        <article>
+          <h3>专项化</h3>
+          <p>按目标项目分配能力权重：800 米偏速度、速度耐力与乳酸能力；5000 米偏有氧、阈值与 VO₂max。</p>
+        </article>
+        <article>
+          <h3>周期化</h3>
+          <p>训练周期分为基础期、强化期、专项期和调整期，逐步从能力建设过渡到比赛状态。</p>
+        </article>
+        <article>
+          <h3>数据驱动</h3>
+          <p>根据当前成绩计算能力评分，识别低于专项需求的能力短板，并将短板转化为训练重点。</p>
+        </article>
+        <article>
+          <h3>动态调整</h3>
+          <p>根据恢复能力、伤病风险、每周训练天数和用户进一步需求自动调整训练负荷、强度和内容。</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>本原型依据上传的《AI中长跑训练系统需求与训练模型设计文档 V1.0》实现，用于产品验证与规则引擎演示。</p>
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>
