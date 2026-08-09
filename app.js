@@ -54,40 +54,172 @@ const REFERENCE = {
 
 const TRAINING_LIBRARY = {
   base: {
-    speed: "6-8×100m 加速跑，充分走回恢复，保持动作放松",
-    speedEndurance: "6×200m @ 1500m-800m 配速，组间慢走 2-3 分钟",
-    lactate: "4×300m @ 800m 配速控制版，组间 4 分钟，避免跑崩",
-    vo2max: "5×600m @ 3km-5km 配速，组间慢跑 2 分钟",
-    threshold: "节奏跑 15-20 分钟，强度为可控但不能轻松聊天",
-    aerobic: "轻松跑 40-55 分钟，最后加入 4 次短加速",
-    strength: "核心、臀腿和小腿力量 30 分钟，动作质量优先",
+    speed: [
+      "6-8×100m 加速跑，充分走回恢复，保持动作放松",
+      "5×150m 放松快跑，强度 85%-90%，组间走回恢复",
+      "4×60m 起跑加速 + 4×120m 顺风跑，重点是步频和放松",
+    ],
+    speedEndurance: [
+      "6×200m @ 1500m-800m 配速，组间慢走 2-3 分钟",
+      "4×300m @ 1500m 节奏，组间 3 分钟，最后 100m 保持动作",
+      "3 组 300m+200m，组内休 90 秒，组间休 5 分钟，控制乳酸堆积",
+      "5×300m 渐进跑，第 1-3 组可控，第 4-5 组接近专项节奏",
+    ],
+    lactate: [
+      "4×300m @ 800m 配速控制版，组间 4 分钟，避免跑崩",
+      "3 组 300m+150m，组内休 60-90 秒，组间休 6 分钟",
+      "2×500m @ 1500m-800m 强度，组间 7 分钟，重点是后程动作稳定",
+    ],
+    vo2max: [
+      "5×600m @ 3km-5km 配速，组间慢跑 2 分钟",
+      "6×500m @ 3km 配速，组间慢跑 90 秒",
+      "4×800m @ 5km 配速，组间慢跑 2 分钟",
+      "3×1200m @ 5km 配速，组间慢跑 2-3 分钟，用于建立长间歇耐受",
+    ],
+    threshold: [
+      "节奏跑 15-20 分钟，强度为可控但不能轻松聊天",
+      "3×8 分钟阈值跑，组间慢跑 2 分钟",
+      "20 分钟渐进节奏跑，后 5 分钟接近阈值强度",
+      "2×1600m @ 阈值配速，组间慢跑 3 分钟，重点是稳定节奏",
+    ],
+    aerobic: [
+      "轻松跑 40-55 分钟，最后加入 4 次短加速",
+      "轻松跑 35-50 分钟 + 6×80m 技术加速跑",
+      "有氧跑 45 分钟，保持稳定呼吸和轻松步频",
+    ],
+    strength: [
+      "核心、臀腿和小腿力量 30 分钟，动作质量优先",
+      "徒手力量 30 分钟：弓步、臀桥、提踵、平板支撑",
+      "跑姿稳定训练 25 分钟：单腿硬拉、侧桥、弹力带侧走",
+    ],
   },
   build: {
-    speed: "8×150m 快跑，接近 400m 节奏，组间充分恢复",
-    speedEndurance: "5×400m @ 目标项目节奏，组间 2.5-4 分钟",
-    lactate: "3×500m @ 800m-1500m 强度，组间 6 分钟",
-    vo2max: "5×800m @ 3km-5km 配速，组间慢跑 2-3 分钟",
-    threshold: "2×12 分钟阈值跑，组间慢跑 3 分钟",
-    aerobic: "轻松跑 45-65 分钟，控制心率和步频",
-    strength: "力量训练 35 分钟：深蹲、弓步、提踵、核心",
+    speed: [
+      "8×150m 快跑，接近 400m 节奏，组间充分恢复",
+      "6×200m @ 400m-800m 之间的速度，组间 3-4 分钟",
+      "4×120m + 4×80m，前者建立速度，后者保持神经兴奋",
+    ],
+    speedEndurance: [
+      "5×400m @ 目标项目节奏，组间 2.5-4 分钟",
+      "3 组 400m+300m，组内休 90 秒，组间休 6 分钟，400m 稳、300m 顶住后程",
+      "3 组 500m+300m，组内休 2 分钟，组间休 7 分钟，用于强化 800m-1500m 后程能力",
+      "4×500m @ 1500m 节奏，组间 4-5 分钟，要求每组后 100m 不掉速",
+      "2 组 600m+200m，组内休 2 分钟，组间休 8 分钟，600m 控制、200m 快速收尾",
+      "6×300m @ 略快于目标项目节奏，组间 2.5-3 分钟，训练速度保持率",
+    ],
+    lactate: [
+      "3×500m @ 800m-1500m 强度，组间 6 分钟",
+      "2 组 500m+300m+200m，组内休 90 秒，组间休 8 分钟，模拟比赛后半段压力",
+      "3 组 400m+200m，组内休 60-90 秒，组间休 6 分钟，提升耐酸和冲刺保持",
+      "2×600m @ 800m-1500m 强度，组间 8 分钟，第二组重点保持节奏",
+    ],
+    vo2max: [
+      "5×800m @ 3km-5km 配速，组间慢跑 2-3 分钟",
+      "4×1000m @ 5km 配速，组间慢跑 2 分钟",
+      "6×600m @ 3km 配速，组间 2 分钟，强调稳定输出",
+      "4×1200m @ 5km 配速，组间慢跑 2-3 分钟，提升 VO₂max 持续输出",
+      "3×1600m @ 5km-10km 之间强度，组间慢跑 3 分钟，适合 3000m/5000m 强化期",
+    ],
+    threshold: [
+      "2×12 分钟阈值跑，组间慢跑 3 分钟",
+      "3×10 分钟阈值跑，组间慢跑 2 分钟",
+      "25 分钟连续节奏跑，前 15 分钟稳住，后 10 分钟略提速",
+      "3×1600m @ 阈值配速，组间慢跑 2-3 分钟，保持每组配速一致",
+      "2×2000m @ 阈值配速，组间慢跑 3 分钟，适合有氧基础较好的跑者",
+    ],
+    aerobic: [
+      "轻松跑 45-65 分钟，控制心率和步频",
+      "中等有氧跑 50 分钟，结束后 6×100m 放松加速",
+      "轻松跑 40 分钟 + 跑姿技术练习 12 分钟",
+    ],
+    strength: [
+      "力量训练 35 分钟：深蹲、弓步、提踵、核心",
+      "下肢力量 35 分钟：分腿蹲、台阶上步、提踵、臀桥",
+      "核心稳定 30 分钟：死虫、侧桥、平板支撑、髋部稳定",
+    ],
   },
   specific: {
-    speed: "4×120m 快速放松跑，保持高质量神经激活",
-    speedEndurance: "3-4×500m @ 比赛节奏，组间 5-6 分钟",
-    lactate: "2×600m @ 目标 800m 节奏，组间 8 分钟",
-    vo2max: "4×1000m @ 3km-5km 强度，组间 2.5 分钟",
-    threshold: "20-25 分钟连续阈值跑，后半程稳定",
-    aerobic: "轻松跑 35-55 分钟，保留体能给专项课",
-    strength: "弹力带、核心和低量爆发力 25 分钟",
+    speed: [
+      "4×120m 快速放松跑，保持高质量神经激活",
+      "5×150m @ 接近 400m 节奏，组间充分恢复，不追求跑崩",
+      "3×200m @ 略快于比赛节奏，组间 5 分钟，找速度感觉",
+    ],
+    speedEndurance: [
+      "3-4×500m @ 比赛节奏，组间 5-6 分钟",
+      "2 组 400m+300m，组内休 90 秒，组间休 8 分钟，按目标比赛节奏执行",
+      "2 组 500m+300m，组内休 2 分钟，组间休 8-10 分钟，模拟中后程速度保持",
+      "2 组 600m+200m，组内休 2 分钟，组间休 10 分钟，600m 稳住专项节奏，200m 快速结束",
+      "3×400m @ 比赛节奏 + 2×300m @ 略快，组间充分恢复，保持高质量",
+    ],
+    lactate: [
+      "2×600m @ 目标 800m 节奏，组间 8 分钟",
+      "500m+300m+200m 组合，组内休 2 分钟，完整模拟比赛后程压力",
+      "2 组 300m+300m，组内休 60 秒，组间休 8 分钟，训练耐酸与动作稳定",
+    ],
+    vo2max: [
+      "4×1000m @ 3km-5km 强度，组间 2.5 分钟",
+      "5×800m @ 3km-5km 强度，组间 2 分钟",
+      "3×1200m @ 5km 强度，组间 3 分钟，保持节奏稳定",
+      "4×1200m @ 3km-5km 强度，组间 2.5-3 分钟，强化高强度持续能力",
+      "3×1600m @ 5km 强度，组间 3-4 分钟，适合 3000m/5000m 专项期",
+      "2×2000m @ 5km 强度控制版，组间 4 分钟，要求后半程不掉速",
+    ],
+    threshold: [
+      "20-25 分钟连续阈值跑，后半程稳定",
+      "2×15 分钟阈值跑，组间慢跑 3 分钟",
+      "10 分钟节奏跑 + 4×400m 稳定间歇，连接阈值和专项节奏",
+      "3×1600m @ 阈值配速，组间慢跑 2-3 分钟，连接阈值和比赛耐力",
+      "2-3×2000m @ 阈值配速，组间慢跑 3 分钟，用于 5000m 专项耐力",
+    ],
+    aerobic: [
+      "轻松跑 35-55 分钟，保留体能给专项课",
+      "轻松跑 40 分钟 + 4×100m 放松加速",
+      "恢复性有氧跑 35-45 分钟，重点消除疲劳",
+    ],
+    strength: [
+      "弹力带、核心和低量爆发力 25 分钟",
+      "低量力量激活 20 分钟：臀桥、提踵、核心、髋部稳定",
+      "赛前稳定训练 20 分钟，不做大重量，不制造酸痛",
+    ],
   },
   taper: {
-    speed: "4×80m 放松加速，保持速度感觉",
-    speedEndurance: "3×300m @ 比赛节奏，组间充分恢复",
-    lactate: "2×300m @ 略快于比赛节奏，量小质高",
-    vo2max: "3×600m @ 目标项目节奏，组间 3 分钟",
-    threshold: "节奏跑 10-15 分钟，结束时仍感觉有余力",
-    aerobic: "轻松跑 25-40 分钟，保持节奏感",
-    strength: "轻量激活 15-20 分钟，不制造酸痛",
+    speed: [
+      "4×80m 放松加速，保持速度感觉",
+      "3×120m 快速但放松，组间充分恢复",
+      "4×60m 起跑加速，保持神经兴奋，不制造疲劳",
+    ],
+    speedEndurance: [
+      "3×300m @ 比赛节奏，组间充分恢复",
+      "2 组 300m+200m，组内休 90 秒，组间充分恢复，量小质高",
+      "2×400m @ 比赛节奏，组间 6-8 分钟，跑完仍有余力",
+    ],
+    lactate: [
+      "2×300m @ 略快于比赛节奏，量小质高",
+      "300m+200m 组合，组内休 90 秒，保持速度感觉即可",
+      "2×200m @ 比赛收尾节奏，组间充分恢复",
+    ],
+    vo2max: [
+      "3×600m @ 目标项目节奏，组间 3 分钟",
+      "3×500m @ 目标节奏，组间 3-4 分钟，保持轻快",
+      "2×800m @ 5km 节奏，组间慢跑 3 分钟，控制疲劳",
+      "2×1200m @ 5km 节奏，组间慢跑 3 分钟，只保留节奏感不堆疲劳",
+    ],
+    threshold: [
+      "节奏跑 10-15 分钟，结束时仍感觉有余力",
+      "2×8 分钟轻阈值跑，组间慢跑 3 分钟",
+      "15 分钟渐进跑，最后 3 分钟接近阈值但不硬顶",
+      "2×1600m @ 轻阈值配速，组间慢跑 3 分钟，赛前保持有氧张力",
+    ],
+    aerobic: [
+      "轻松跑 25-40 分钟，保持节奏感",
+      "恢复跑 25-35 分钟 + 4×80m 放松加速",
+      "轻松跑 30 分钟，结束后充分拉伸",
+    ],
+    strength: [
+      "轻量激活 15-20 分钟，不制造酸痛",
+      "核心激活 15 分钟 + 髋部灵活性",
+      "弹力带激活 12-15 分钟，保持身体唤醒",
+    ],
   },
 };
 
@@ -108,8 +240,8 @@ const NEED_KEYWORDS = {
     { keys: ["速度", "冲刺", "爆发", "步频", "400"], value: "speed" },
     { keys: ["速度耐力", "后程", "最后300", "最后 300", "保持率"], value: "speedEndurance" },
     { keys: ["乳酸", "耐酸", "酸痛耐受"], value: "lactate" },
-    { keys: ["vo2", "VO2", "摄氧", "间歇"], value: "vo2max" },
-    { keys: ["阈值", "节奏", "tempo"], value: "threshold" },
+    { keys: ["vo2", "VO2", "摄氧", "间歇", "1200", "长间歇"], value: "vo2max" },
+    { keys: ["阈值", "节奏", "tempo", "1600", "2000", "长距离间歇"], value: "threshold" },
     { keys: ["有氧", "耐力", "长跑", "跑量"], value: "aerobic" },
     { keys: ["力量", "核心", "稳定", "弹跳"], value: "strength" },
   ],
@@ -438,11 +570,11 @@ function buildWeekDays(input, analysis, phase, load, weekNo) {
 
   const fullWeek = [
     day("周一", "恢复与灵活性", applyNeedAdjustment(input, `轻松跑 ${Math.max(20, easyMinutes - 12)} 分钟 + 拉伸放松，RPE 3-4。`, "recovery")),
-    day("周二", LABELS[primary], applyNeedAdjustment(input, `${TRAINING_LIBRARY[phase.id][primary] || TRAINING_LIBRARY[phase.id].vo2max}。${paceHint}${modifier}`, primary)),
-    day("周三", "力量与轻松跑", applyNeedAdjustment(input, `${TRAINING_LIBRARY[phase.id].strength} + 轻松跑 ${Math.max(18, easyMinutes - 15)} 分钟。`, "strength")),
-    day("周四", LABELS[secondary], applyNeedAdjustment(input, `${TRAINING_LIBRARY[phase.id][secondary] || TRAINING_LIBRARY[phase.id].threshold}。${modifier}`, secondary)),
+    day("周二", LABELS[primary], applyNeedAdjustment(input, `${getWorkout(phase.id, primary, weekNo, 0)}。${paceHint}${modifier}`, primary)),
+    day("周三", "力量与轻松跑", applyNeedAdjustment(input, `${getWorkout(phase.id, "strength", weekNo, 1)} + 轻松跑 ${Math.max(18, easyMinutes - 15)} 分钟。`, "strength")),
+    day("周四", LABELS[secondary], applyNeedAdjustment(input, `${getWorkout(phase.id, secondary, weekNo, 2)}。${modifier}`, secondary)),
     day("周五", "休息或交叉训练", "完全休息，或骑行/游泳 30 分钟，保持低强度。"),
-    day("周六", LABELS[tertiary], applyNeedAdjustment(input, `${TRAINING_LIBRARY[phase.id][tertiary] || TRAINING_LIBRARY[phase.id].aerobic}。${modifier}`, tertiary)),
+    day("周六", LABELS[tertiary], applyNeedAdjustment(input, `${getWorkout(phase.id, tertiary, weekNo, 3)}。${modifier}`, tertiary)),
     day("周日", "有氧长跑", applyNeedAdjustment(input, `轻松长跑 ${longRunDistance} km，最后 5 分钟放松慢跑。`, "aerobic")),
   ];
 
@@ -453,6 +585,15 @@ function buildWeekDays(input, analysis, phase, load, weekNo) {
 
 function day(name, title, detail) {
   return { name, title, detail };
+}
+
+function getWorkout(phaseId, type, weekNo, offset = 0) {
+  const phaseLibrary = TRAINING_LIBRARY[phaseId] || TRAINING_LIBRARY.base;
+  const candidates = phaseLibrary[type] || phaseLibrary.vo2max || phaseLibrary.aerobic;
+  if (Array.isArray(candidates)) {
+    return candidates[(weekNo + offset - 1) % candidates.length];
+  }
+  return candidates;
 }
 
 function applyNeedAdjustment(input, detail, type) {
