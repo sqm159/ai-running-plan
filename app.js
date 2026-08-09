@@ -230,6 +230,65 @@ const PHASES = [
   { id: "taper", name: "调整期", goal: "降低疲劳并形成比赛状态", ratio: 0.13 },
 ];
 
+const EVENT_SPECIAL_WORKOUTS = {
+  800: {
+    build: [
+      "1000m+800m+600m 递减组合，组间 6-8 分钟：1000m 控制在 1500m 节奏，800m 接近专项节奏，600m 强化后程刺激",
+      "600m+400m+300m+200m 递减组合，组间 4-6 分钟：从专项耐受过渡到速度保持",
+      "2 组 500m+300m，组内休 2 分钟，组间休 8 分钟：模拟 800m 中后段酸感下的节奏保持",
+      "700m+500m+300m，组间 6-8 分钟：700m 稳住比赛节奏，后两段提升速度耐力",
+    ],
+    specific: [
+      "1000m+800m+600m 专项刺激，组间充分恢复：总量不追求大，重点是每段后 200m 动作不散",
+      "600m+200m 组合 ×2，组内休 2 分钟，组间休 10 分钟：600m 接近比赛节奏，200m 快速收尾",
+      "500m+300m+200m，组内休 2 分钟：完整模拟 800m 后程压力和冲刺转换",
+      "3×300m @ 略快于比赛节奏 + 2×200m 快速放松，组间充分恢复，保持神经速度",
+    ],
+  },
+  1500: {
+    build: [
+      "4000m+2000m+1000m 递减节奏组合，组间慢跑 3-4 分钟：4000m 有氧阈值，2000m 接近 5km，1000m 接近 1500m 控制节奏",
+      "3000m+2000m+1000m+400m 金字塔下降，组间 3-5 分钟：距离越短速度越快，最后 400m 保持放松",
+      "2000m+1600m+1200m+800m+400m 递减组合，组间 2.5-4 分钟：从阈值过渡到专项速度",
+      "1000m+800m+600m+400m+300m，组间 3-5 分钟：每段逐步提速，训练 1500m 后程变化能力",
+    ],
+    specific: [
+      "3000m+2000m+1000m+400m 专项金字塔，组间 3-5 分钟：前两段稳住有氧，后两段进入 1500m 节奏",
+      "2000m+1000m+800m+400m，组间 4 分钟：1000m 后开始接近比赛感觉，400m 快速但不僵",
+      "1600m+1200m+800m+400m，组间 3-4 分钟：每段递进提速，建立从巡航到冲刺的转换",
+      "1200m+800m+600m+400m，组间充分恢复：专项期高质量节奏课，保持动作完整优先",
+    ],
+  },
+  3000: {
+    build: [
+      "3000m+2000m+1000m，组间慢跑 3 分钟：3000m 稳定巡航，2000m 接近阈值，1000m 提到 3km 节奏",
+      "4×1200m @ 3km-5km 强度，组间 2.5-3 分钟：保持每组配速一致",
+      "2000m+1600m+1200m+800m，组间 3 分钟：由有氧耐力过渡到专项节奏",
+      "5×1000m @ 3km 节奏控制版，组间 2-3 分钟：最后两组保持技术动作",
+    ],
+    specific: [
+      "2000m+1000m+800m+400m，组间 3-4 分钟：专项节奏和最后 400m 变速能力结合",
+      "3×1600m @ 5km-3km 之间强度，组间 3 分钟：提高长间歇持续输出",
+      "1200m+1000m+800m+600m+400m，组间 2.5-4 分钟：逐段提速，强化后程能力",
+      "2×2000m @ 3km 控制强度 + 4×400m，长段稳住，短段找节奏变化",
+    ],
+  },
+  5000: {
+    build: [
+      "4×1600m @ 5km-10km 之间强度，组间慢跑 2-3 分钟：重点是稳定巡航能力",
+      "3×2000m @ 阈值配速，组间慢跑 3 分钟：训练 5000m 所需的高有氧输出",
+      "3000m+2000m+1000m，组间慢跑 3 分钟：长段控阈值，短段接近 5km 节奏",
+      "5×1200m @ 5km 配速，组间慢跑 2 分钟：提高专项节奏重复能力",
+    ],
+    specific: [
+      "2000m+1600m+1200m+800m+400m 递减组合，组间 2.5-4 分钟：从 5km 节奏逐步过渡到最后冲刺",
+      "2×3000m @ 10km-5km 之间强度，组间慢跑 4 分钟：大段落专项耐力",
+      "3×2000m @ 5km 控制版，组间 3-4 分钟：要求后 1000m 不掉速",
+      "1600m+1200m+1000m+800m+600m，组间 2.5-3 分钟：递减提速，强化 5000m 后程",
+    ],
+  },
+};
+
 const NEED_KEYWORDS = {
   reduce: ["疲劳", "太累", "累", "恢复差", "睡眠差", "压力大", "状态差", "降低", "轻一点", "轻松", "保守"],
   injury: ["受伤", "伤", "疼", "痛", "不适", "膝", "跟腱", "小腿", "胫骨", "足底", "髂胫束", "拉伤"],
@@ -567,12 +626,15 @@ function buildWeekDays(input, analysis, phase, load, weekNo) {
   const easyMinutes = Math.round((30 + input.daysPerWeek * 4) * load);
   const paceHint = buildPaceHint(input.goalTime, input.event);
   const modifier = input.adjustment?.sessionModifier ? ` ${input.adjustment.sessionModifier}` : "";
+  const specialWorkout = getEventSpecialWorkout(input.event, phase.id, weekNo);
+  const qualityDayTitle = specialWorkout ? `${input.model.name} 专项刺激` : LABELS[secondary];
+  const qualityDayDetail = specialWorkout || `${getWorkout(phase.id, secondary, weekNo, 2)}。${modifier}`;
 
   const fullWeek = [
     day("周一", "恢复与灵活性", applyNeedAdjustment(input, `轻松跑 ${Math.max(20, easyMinutes - 12)} 分钟 + 拉伸放松，RPE 3-4。`, "recovery")),
     day("周二", LABELS[primary], applyNeedAdjustment(input, `${getWorkout(phase.id, primary, weekNo, 0)}。${paceHint}${modifier}`, primary)),
     day("周三", "力量与轻松跑", applyNeedAdjustment(input, `${getWorkout(phase.id, "strength", weekNo, 1)} + 轻松跑 ${Math.max(18, easyMinutes - 15)} 分钟。`, "strength")),
-    day("周四", LABELS[secondary], applyNeedAdjustment(input, `${getWorkout(phase.id, secondary, weekNo, 2)}。${modifier}`, secondary)),
+    day("周四", qualityDayTitle, applyNeedAdjustment(input, qualityDayDetail, specialWorkout ? "eventSpecific" : secondary)),
     day("周五", "休息或交叉训练", "完全休息，或骑行/游泳 30 分钟，保持低强度。"),
     day("周六", LABELS[tertiary], applyNeedAdjustment(input, `${getWorkout(phase.id, tertiary, weekNo, 3)}。${modifier}`, tertiary)),
     day("周日", "有氧长跑", applyNeedAdjustment(input, `轻松长跑 ${longRunDistance} km，最后 5 分钟放松慢跑。`, "aerobic")),
@@ -594,6 +656,14 @@ function getWorkout(phaseId, type, weekNo, offset = 0) {
     return candidates[(weekNo + offset - 1) % candidates.length];
   }
   return candidates;
+}
+
+function getEventSpecialWorkout(event, phaseId, weekNo) {
+  if (!["build", "specific"].includes(phaseId)) return null;
+  const eventLibrary = EVENT_SPECIAL_WORKOUTS[event]?.[phaseId];
+  if (!eventLibrary?.length) return null;
+  const workout = eventLibrary[(weekNo - 1) % eventLibrary.length];
+  return `${workout}。这节课属于专项刺激课，热身至少 15-20 分钟，结束后慢跑放松 10 分钟`;
 }
 
 function applyNeedAdjustment(input, detail, type) {
