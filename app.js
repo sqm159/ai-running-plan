@@ -590,15 +590,11 @@ function analyzeAthlete(input) {
   const ageCoef = calculateAgeCorrection(input.age);
   const correctedScores = {};
   Object.keys(rawScores).forEach((key) => {
-    correctedScores[key] = Math.round(clamp(rawScores[key] * ageCoef, 20, 115));
+    // V2.1 3.3：所有能力评分封顶100分
+    correctedScores[key] = Math.round(clamp(rawScores[key] * ageCoef, 0, 100));
   });
 
   const goalDemands = calculateGoalDemandScores(input.event, input.goalTime, estimated);
-
-  // V2.0 第三章：双层评分体系
-  // 绝对能力评分 = 当前能力评分（距离世界顶尖水平的距离）
-  // 项目适配评分 = 当前能力是否满足目标项目需求
-  const adaptationScores = calculateAdaptationScores(correctedScores, goalDemands);
 
   const athleteType = classifyAthleteType(correctedScores, goalDemands, input.event);
 
@@ -617,12 +613,22 @@ function analyzeAthlete(input) {
   // V2.0 第六章：异常数据检测
   const anomalies = detectAnomalies(input.times);
 
+  // V2.1 3.5：计算能力差距等级（取消适配评分）
+  const gapAnalysis = {};
+  SIX_DIMENSIONS.forEach((dim) => {
+    const ability = correctedScores[dim];
+    const demand = goalDemands[dim];
+    if (ability != null && demand != null) {
+      gapAnalysis[dim] = getGapLevel(ability - demand);
+    }
+  });
+
   return {
     scores: correctedScores,
     rawScores,
     ageCoef,
     goalDemands,
-    adaptationScores,
+    gapAnalysis,
     athleteType,
     weaknessAnalysis,
     weightResult,
@@ -634,21 +640,24 @@ function analyzeAthlete(input) {
   };
 }
 
-// V2.0 第三章3.3：项目适配评分
-// 回答"当前能力是否满足目标项目需求"，用于训练决策
-function calculateAdaptationScores(currentScores, goalDemands) {
-  const adaptation = {};
-  SIX_DIMENSIONS.forEach((dim) => {
-    const current = currentScores[dim];
-    const demand = goalDemands[dim];
-    if (current != null && demand != null && demand > 0) {
-      // 适配评分 = 当前能力 / 项目需求 * 100，超过100表示已达标
-      adaptation[dim] = Math.round(clamp((current / demand) * 100, 0, 120));
-    } else {
-      adaptation[dim] = null;
-    }
-  });
-  return adaptation;
+// V2.1 3.5：能力差距等级模型
+// 取消"适配评分"，改为能力差距等级判断
+function getGapLevel(gap) {
+  if (gap >= 15) return { level: "advantage", label: "明显优势", cls: "gap-advantage" };
+  if (gap >= 5) return { level: "sufficient", label: "能力充足", cls: "gap-sufficient" };
+  if (gap >= -5) return { level: "matched", label: "基本匹配", cls: "gap-matched" };
+  if (gap >= -15) return { level: "insufficient", label: "存在不足", cls: "gap-insufficient" };
+  return { level: "deficit", label: "明显短板", cls: "gap-deficit" };
+}
+
+// V2.1 3.7：定性标签输出
+// 系统不向用户展示复杂分数，改用定性标签
+function getQualitativeLabel(gap) {
+  if (gap >= 15) return { label: "优秀", cls: "qual-excellent" };
+  if (gap >= 5) return { label: "充足", cls: "qual-sufficient" };
+  if (gap >= -5) return { label: "良好", cls: "qual-good" };
+  if (gap >= -15) return { label: "需要提升", cls: "qual-improve" };
+  return { label: "明显短板", cls: "qual-deficit" };
 }
 
 // V2.0 第六章：异常数据检测
@@ -1053,7 +1062,7 @@ function buildPaceHint(goalTime, event) {
 }
 
 function renderSummary(input, analysis) {
-  // V2.0 第七章：输出教练化语言
+  // V2.0 第七章 + V2.1 3.7：教练化语言输出
   const weakText = analysis.weakKeys.map((key) => LABELS[key]).join("、");
   const focusText = input.model.focus.join("、");
   const typeBadge = analysis.athleteType;
@@ -1063,18 +1072,36 @@ function renderSummary(input, analysis) {
     ? `<div class="adjustment-box" style="border-color:var(--red);background:linear-gradient(180deg,#fff5f4,#fef0ee)"><strong style="color:var(--red)">⚠ 数据异常提醒</strong>${analysis.anomalies.map((a) => `<p style="color:#a04030">${a}</p>`).join("")}</div>`
     : "";
 
-  // V2.0 第三章：双层评分展示
+  // V2.1 3.5：能力评估详情（用差距等级替代适配评分）
   const scoreRows = SIX_DIMENSIONS
     .map((dim) => {
       const absScore = analysis.scores[dim] ?? "—";
       const demand = analysis.goalDemands[dim] ?? "—";
-      const adapt = analysis.adaptationScores?.[dim] ?? "—";
+      const gapInfo = analysis.gapAnalysis?.[dim];
+      const gapLabel = gapInfo ? gapInfo.label : "—";
+      const gapCls = gapInfo ? gapInfo.cls : "";
       const diff = typeof absScore === "number" && typeof demand === "number" ? absScore - demand : 0;
       const cls = diff > 5 ? "surplus" : diff < -5 ? "deficit" : "balanced";
       const sign = diff > 0 ? "+" : "";
-      return `<tr><td>${LABELS[dim]}</td><td>${absScore}</td><td>${demand}</td><td class="${cls}">${sign}${diff}</td><td>${adapt}</td></tr>`;
+      return `<tr><td>${LABELS[dim]}</td><td>${absScore}</td><td>${demand}</td><td class="${cls}">${sign}${diff}</td><td class="${gapCls}">${gapLabel}</td></tr>`;
     })
     .join("");
+
+  // V2.1 3.7：能力画像（定性标签替代复杂分数）
+  const abilityProfile = SIX_DIMENSIONS
+    .map((dim) => {
+      const score = analysis.scores[dim];
+      const demand = analysis.goalDemands[dim];
+      if (score == null || demand == null) return null;
+      const gap = score - demand;
+      const qual = getQualitativeLabel(gap);
+      return `<div class="profile-item ${qual.cls}"><span class="profile-label">${LABELS[dim]}</span><span class="profile-value">${qual.label}</span></div>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  // V2.1 3.7：教练建议
+  const coachAdvice = generateCoachAdvice(analysis, input);
 
   const weaknessItems = analysis.weaknessAnalysis
     .map((w) => `
@@ -1122,11 +1149,18 @@ function renderSummary(input, analysis) {
         <span><span class="dot dot-target"></span>目标需求</span>
       </div>
     </div>
-    <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">能力评估详情（双层评分）</h4>
+    <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">能力画像</h4>
+    <div class="ability-profile">${abilityProfile}</div>
+    <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">能力评估详情</h4>
     <table class="demand-table">
-      <thead><tr><th>维度</th><th>绝对能力</th><th>项目需求</th><th>差值</th><th>适配评分</th></tr></thead>
+      <thead><tr><th>维度</th><th>能力评分</th><th>项目需求</th><th>差值</th><th>差距等级</th></tr></thead>
       <tbody>${scoreRows}</tbody>
     </table>
+    <div class="coach-advice-box">
+      <h4>教练建议</h4>
+      <p><strong>你的主要限制因素：</strong>${coachAdvice.limitingFactor}</p>
+      <p><strong>未来训练重点：</strong>${coachAdvice.trainingFocus}</p>
+    </div>
     <div class="weakness-box">
       <h4>短板识别与训练调整</h4>
       ${weaknessItems}
@@ -1166,6 +1200,43 @@ function renderSummary(input, analysis) {
   drawRadarChart("radarChart", analysis.scores, analysis.goalDemands);
 }
 
+// V2.1 3.7：教练建议生成函数
+function generateCoachAdvice(analysis, input) {
+  const eventName = input.model.name.replace(" 米", "");
+
+  // V2.1 3.6：训练决策基于最大差距而非最低分
+  const gaps = SIX_DIMENSIONS
+    .filter((d) => analysis.scores[d] != null && analysis.goalDemands[d] != null)
+    .map((d) => ({
+      dim: d,
+      gap: analysis.scores[d] - analysis.goalDemands[d],
+      score: analysis.scores[d],
+      demand: analysis.goalDemands[d],
+    }))
+    .sort((a, b) => a.gap - b.gap); // 差距最大的排最前
+
+  const maxGap = gaps[0];
+  const limitingFactor = maxGap && maxGap.gap < -5
+    ? `${LABELS[maxGap.dim]}（当前${maxGap.score}分，项目需求${maxGap.demand}分，差距${maxGap.gap}分）`
+    : "各维度基本达标，无明显限制因素";
+
+  // 根据最大差距维度生成训练重点
+  const focusMap = {
+    speed: "提高短距离冲刺和速度力量，增加 30-80m 高速跑训练",
+    speedEndurance: "提升中段速度保持能力，增加 300-600m 专项训练",
+    lactate: "强化末段乳酸耐受能力，增加 500-600m 高强度段落",
+    vo2max: "提升最大摄氧能力，增加 800-1600m 长间歇训练",
+    threshold: "加强乳酸阈能力，增加节奏跑和阈值间歇训练",
+    aerobic: "夯实有氧基础，延长长跑距离和轻松跑时间",
+  };
+
+  const trainingFocus = maxGap && maxGap.gap < -5
+    ? `${focusMap[maxGap.dim]}，同时保持现有优势维度`
+    : `按${eventName}米项目需求均衡分配训练重点，持续提升专项综合能力`;
+
+  return { limitingFactor, trainingFocus };
+}
+
 function scoreRowWithDemand(key, score) {
   const colorClass = score < 60 ? "low" : score < 78 ? "mid" : "high";
   return `
@@ -1187,8 +1258,9 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
   const dims = SIX_DIMENSIONS;
   const n = dims.length;
   const angleStep = (Math.PI * 2) / n;
-  const minVal = 30;
-  const maxVal = 115;
+  // V2.1 3.3：雷达图最大值改为100（所有能力评分封顶100分）
+  const minVal = 20;
+  const maxVal = 100;
   const range = maxVal - minVal;
 
   const valToRadius = (val) => {
@@ -1198,7 +1270,8 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const gridLabels = ["50", "70", "85", "100", "115+"];
+  // V2.1：网格标签更新为0-100范围
+  const gridLabels = ["40", "55", "70", "85", "100"];
   for (let level = 1; level <= 5; level++) {
     const r = (radius * level) / 5;
     ctx.beginPath();
