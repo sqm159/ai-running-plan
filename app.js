@@ -52,6 +52,13 @@ const REFERENCE = {
   vo2: 85,
 };
 
+const EVENT_DEMAND_PROFILE = {
+  800:  { speed: 95, speedEndurance: 95, lactate: 90, vo2max: 70, threshold: 40, aerobic: 35 },
+  1500: { speed: 80, speedEndurance: 85, lactate: 85, vo2max: 90, threshold: 85, aerobic: 70 },
+  3000: { speed: 65, speedEndurance: 75, lactate: 80, vo2max: 90, threshold: 90, aerobic: 85 },
+  5000: { speed: 45, speedEndurance: 60, lactate: 75, vo2max: 90, threshold: 95, aerobic: 95 },
+};
+
 const SIX_DIMENSIONS = ["speed", "speedEndurance", "lactate", "vo2max", "threshold", "aerobic"];
 
 const AGE_CORRECTION = [
@@ -108,7 +115,7 @@ const ATHLETE_TYPE_RULES = [
 const WEAKNESS_RULES = [
   {
     id: "speed_surplus_se_deficit",
-    test: (s, d) => s.speed >= d.speed + 10 && s.speedEndurance <= d.speedEndurance - 10,
+    test: (s, d) => s.speed >= d.speed + 10 && s.speedEndurance <= d.speedEndurance - 15,
     type: (event) => `速度型 ${event}米`,
     factor: "速度耐力不足",
     adjustment: "速度耐力训练 +20%，增加 400-600m 组合段落",
@@ -116,7 +123,7 @@ const WEAKNESS_RULES = [
   },
   {
     id: "se_surplus_speed_deficit",
-    test: (s, d) => s.speedEndurance >= d.speedEndurance + 10 && s.speed <= d.speed - 10,
+    test: (s, d) => s.speedEndurance >= d.speedEndurance + 10 && s.speed <= d.speed - 15,
     type: (event) => `耐力型 ${event}米`,
     factor: "绝对速度不足",
     adjustment: "速度训练 +15%，增加 100-200m 短距离冲刺",
@@ -124,7 +131,7 @@ const WEAKNESS_RULES = [
   },
   {
     id: "speed_deficit",
-    test: (s, d) => s.speed <= d.speed - 10,
+    test: (s, d) => s.speed <= d.speed - 15,
     type: (event) => `${event}米速度短板`,
     factor: "绝对速度不足",
     adjustment: "速度训练 +10%，补充短距离爆发力练习",
@@ -132,7 +139,7 @@ const WEAKNESS_RULES = [
   },
   {
     id: "lactate_deficit",
-    test: (s, d) => s.lactate <= d.lactate - 10,
+    test: (s, d) => s.lactate <= d.lactate - 15,
     type: (event) => `${event}米乳酸耐受短板`,
     factor: "乳酸能力不足",
     adjustment: "乳酸耐受训练 +15%，增加 500-600m 高强度段落",
@@ -140,15 +147,15 @@ const WEAKNESS_RULES = [
   },
   {
     id: "vo2max_deficit",
-    test: (s, d) => s.vo2max <= d.vo2max - 10,
+    test: (s, d) => s.vo2max <= d.vo2max - 15,
     type: (event) => `${event}米 VO₂max 短板`,
     factor: "最大摄氧能力不足",
-    adjustment: "VO₂max 间歇 +15%，增加 800-1200m 长间歇",
+    adjustment: "VO₂max 间歇 +15%，增加 800-1600m 长间歇",
     weightShift: { from: null, to: "vo2max", amount: 8 },
   },
   {
     id: "threshold_deficit",
-    test: (s, d) => s.threshold <= d.threshold - 10,
+    test: (s, d) => s.threshold <= d.threshold - 15,
     type: (event) => `${event}米乳酸阈短板`,
     factor: "乳酸阈能力不足",
     adjustment: "阈值训练 +15%，增加 1600-2000m 节奏跑",
@@ -156,7 +163,7 @@ const WEAKNESS_RULES = [
   },
   {
     id: "aerobic_deficit",
-    test: (s, d) => s.aerobic <= d.aerobic - 10,
+    test: (s, d) => s.aerobic <= d.aerobic - 15,
     type: (event) => `${event}米有氧短板`,
     factor: "有氧基础不足",
     adjustment: "有氧跑量 +15%，延长长跑距离和轻松跑时间",
@@ -664,45 +671,14 @@ function deriveGoalTimes(event, goalTime) {
 }
 
 function calculateGoalDemandScores(event, goalTime, estimated) {
-  const goalTimes = deriveGoalTimes(event, goalTime);
-
-  // Demand = absolute ability level needed to achieve the goal
-  // Calculated using the SAME reference standards as current scores,
-  // but with goal times instead of current times.
-  // This ensures the radar chart shows a balanced polygon reflecting
-  // that every event requires ALL abilities, just with different emphasis.
-  const speedDemand = goalTimes[400]
-    ? clamp(100 * Math.pow(REFERENCE.speed400 / goalTimes[400], 2.1), 25, 115)
-    : 100;
-  const lactateDemand = goalTimes[600]
-    ? clamp(100 * Math.pow(REFERENCE.lactate600 / goalTimes[600], 2.4), 25, 115)
-    : 100;
-  const seDemand = goalTimes[400] && goalTimes[800]
-    ? clamp(100 * Math.pow((2 * goalTimes[400] / goalTimes[800]) / REFERENCE.speedEnduranceRatio800, 2.5), 25, 115)
-    : 100;
-  const vo2Demand = avgVal([
-    goalTimes[1500] ? clamp(100 * Math.pow(REFERENCE.t1500 / goalTimes[1500], 1.9), 25, 115) : null,
-    goalTimes[3000] ? clamp(100 * Math.pow(REFERENCE.t3000 / goalTimes[3000], 2.0), 25, 115) : null,
-    goalTimes[5000] ? clamp(100 * Math.pow(REFERENCE.t5000 / goalTimes[5000], 2.0), 25, 115) : null,
-  ]) || 100;
-  const aerobicDemand = goalTimes[10000]
-    ? clamp(100 * Math.pow(REFERENCE.t10000 / goalTimes[10000], 2), 25, 115)
-    : 100;
-
-  const eventGoalTime = goalTimes[event];
-  const t10kGoal = goalTimes[10000];
-  const thresholdDemand = eventGoalTime && t10kGoal
-    ? clamp(100 * Math.pow((10000 / t10kGoal) / (Number(event) / eventGoalTime) / (event === "5000" ? 0.925 : event === "3000" ? 0.89 : 0.86), 2), 25, 115)
-    : 100;
-
-  return {
-    speed: Math.round(speedDemand),
-    speedEndurance: Math.round(seDemand),
-    lactate: Math.round(lactateDemand),
-    vo2max: Math.round(vo2Demand),
-    threshold: Math.round(thresholdDemand),
-    aerobic: Math.round(aerobicDemand),
-  };
+  // 使用固定项目需求指数（来自《第四章 项目需求模型》文档）
+  // 不再根据目标成绩动态计算，而是采用文档定义的绝对参考标准，
+  // 确保雷达图准确反映每个项目对各维度能力的真实需求比例。
+  const profile = EVENT_DEMAND_PROFILE[event];
+  if (!profile) {
+    return { speed: 70, speedEndurance: 70, lactate: 70, vo2max: 70, threshold: 70, aerobic: 70 };
+  }
+  return { ...profile };
 }
 
 function classifyAthleteType(scores, event) {
