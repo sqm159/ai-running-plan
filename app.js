@@ -596,7 +596,7 @@ function analyzeAthlete(input) {
 
   const athleteType = classifyAthleteType(correctedScores, input.event);
 
-  const weaknessAnalysis = analyzeWeaknesses(correctedScores, goalDemands, input.event);
+  const weaknessAnalysis = analyzeWeaknesses(correctedScores, goalDemands, input.event, athleteType);
 
   const weightResult = adjustTrainingWeights(input.event, correctedScores, goalDemands, weaknessAnalysis);
 
@@ -702,11 +702,82 @@ function classifyAthleteType(scores, event) {
   };
 }
 
-function analyzeWeaknesses(scores, goalDemands, event) {
+function analyzeWeaknesses(scores, goalDemands, event, athleteType) {
   const eventName = EVENT_MODELS[event].name.replace(" 米", "");
-  const matched = WEAKNESS_RULES.filter((rule) => rule.test(scores, goalDemands));
 
-  if (!matched.length) {
+  const speedDims = ["speed", "speedEndurance", "lactate"];
+  const enduranceDims = ["aerobic", "threshold", "vo2max"];
+
+  const suppressRules = {
+    speed: ["speed_deficit"],
+    endurance: ["aerobic_deficit", "threshold_deficit", "vo2max_deficit"],
+    balanced: [],
+  };
+  const suppressed = suppressRules[athleteType.id] || [];
+
+  const matched = WEAKNESS_RULES.filter((rule) => {
+    if (suppressed.includes(rule.id)) return false;
+    return rule.test(scores, goalDemands);
+  });
+
+  const notes = [];
+
+  if (athleteType.id === "speed") {
+    const speedAvg = avgVal(speedDims.map((d) => scores[d]));
+    const speedDemandAvg = avgVal(speedDims.map((d) => goalDemands[d]));
+    if (speedAvg < speedDemandAvg - 5) {
+      notes.push({
+        type: `${eventName}米速度型`,
+        factor: "速度相对优势，但距离目标成绩仍有差距",
+        adjustment: "维持速度训练质量，把速度优势转化为专项成绩，同时优先补强耐力侧短板",
+        weightShift: null,
+      });
+    }
+    const weakestEndurance = enduranceDims
+      .filter((d) => scores[d] != null)
+      .sort((a, b) => (scores[a] - goalDemands[a]) - (scores[b] - goalDemands[b]))[0];
+    if (weakestEndurance && scores[weakestEndurance] < goalDemands[weakestEndurance] - 5) {
+      notes.push({
+        type: `${eventName}米速度型`,
+        factor: `${LABELS[weakestEndurance]}是主要限制因素`,
+        adjustment: `重点补强${LABELS[weakestEndurance]}，将速度优势转化为全程表现`,
+        weightShift: { from: null, to: weakestEndurance, amount: 10 },
+      });
+    }
+  }
+
+  if (athleteType.id === "endurance") {
+    const endAvg = avgVal(enduranceDims.map((d) => scores[d]));
+    const endDemandAvg = avgVal(enduranceDims.map((d) => goalDemands[d]));
+    if (endAvg < endDemandAvg - 5) {
+      notes.push({
+        type: `${eventName}米耐力型`,
+        factor: "耐力相对优势，但距离目标成绩仍有差距",
+        adjustment: "维持耐力训练基础，把耐力优势转化为专项速度，同时优先补强速度侧短板",
+        weightShift: null,
+      });
+    }
+    const weakestSpeed = speedDims
+      .filter((d) => scores[d] != null)
+      .sort((a, b) => (scores[a] - goalDemands[a]) - (scores[b] - goalDemands[b]))[0];
+    if (weakestSpeed && scores[weakestSpeed] < goalDemands[weakestSpeed] - 5) {
+      notes.push({
+        type: `${eventName}米耐力型`,
+        factor: `${LABELS[weakestSpeed]}是主要限制因素`,
+        adjustment: `重点补强${LABELS[weakestSpeed]}，提升速度储备以匹配耐力基础`,
+        weightShift: { from: null, to: weakestSpeed, amount: 10 },
+      });
+    }
+  }
+
+  const results = [...notes, ...matched.map((rule) => ({
+    type: rule.type(eventName),
+    factor: rule.factor,
+    adjustment: rule.adjustment,
+    weightShift: rule.weightShift,
+  }))];
+
+  if (!results.length) {
     const weakest = SIX_DIMENSIONS
       .filter((d) => scores[d] != null)
       .sort((a, b) => scores[a] - scores[b])[0];
@@ -718,12 +789,7 @@ function analyzeWeaknesses(scores, goalDemands, event) {
     }];
   }
 
-  return matched.map((rule) => ({
-    type: rule.type(eventName),
-    factor: rule.factor,
-    adjustment: rule.adjustment,
-    weightShift: rule.weightShift,
-  }));
+  return results;
 }
 
 function adjustTrainingWeights(event, scores, goalDemands, weaknessAnalysis) {
