@@ -52,11 +52,38 @@ const REFERENCE = {
   vo2: 85,
 };
 
-const EVENT_DEMAND_PROFILE = {
-  800:  { speed: 95, speedEndurance: 95, lactate: 95, vo2max: 70, threshold: 50, aerobic: 40 },
-  1500: { speed: 80, speedEndurance: 85, lactate: 80, vo2max: 90, threshold: 85, aerobic: 75 },
-  3000: { speed: 65, speedEndurance: 75, lactate: 70, vo2max: 90, threshold: 90, aerobic: 85 },
-  5000: { speed: 50, speedEndurance: 60, lactate: 55, vo2max: 90, threshold: 95, aerobic: 95 },
+// V2.2 第四章：目标成绩能力模型（Target Performance Model）
+// 取消固定项目需求，改为根据用户输入的目标成绩动态计算六维能力需求
+// 每个目标成绩档位定义了达到该成绩所需的"95分标准"能力画像
+const TARGET_PERFORMANCE_MODEL = {
+  800: [
+    { time: 100, label: "1:40",  speed: 98, speedEndurance: 98, lactate: 98, vo2max: 80, threshold: 65, aerobic: 50 },
+    { time: 110, label: "1:50",  speed: 93, speedEndurance: 93, lactate: 93, vo2max: 77, threshold: 65, aerobic: 55 },
+    { time: 120, label: "2:00",  speed: 90, speedEndurance: 90, lactate: 90, vo2max: 75, threshold: 65, aerobic: 60 },
+    { time: 130, label: "2:10",  speed: 82, speedEndurance: 82, lactate: 82, vo2max: 72, threshold: 65, aerobic: 62 },
+    { time: 140, label: "2:20",  speed: 75, speedEndurance: 75, lactate: 75, vo2max: 68, threshold: 63, aerobic: 65 },
+  ],
+  1500: [
+    { time: 210, label: "3:30",  speed: 88, speedEndurance: 90, lactate: 88, vo2max: 95, threshold: 90, aerobic: 82 },
+    { time: 225, label: "3:45",  speed: 82, speedEndurance: 85, lactate: 82, vo2max: 90, threshold: 87, aerobic: 80 },
+    { time: 240, label: "4:00",  speed: 75, speedEndurance: 80, lactate: 75, vo2max: 85, threshold: 82, aerobic: 78 },
+    { time: 260, label: "4:20",  speed: 68, speedEndurance: 73, lactate: 68, vo2max: 78, threshold: 75, aerobic: 75 },
+    { time: 280, label: "4:40",  speed: 60, speedEndurance: 65, lactate: 60, vo2max: 72, threshold: 70, aerobic: 72 },
+  ],
+  3000: [
+    { time: 450, label: "7:30",  speed: 72, speedEndurance: 78, lactate: 75, vo2max: 95, threshold: 92, aerobic: 88 },
+    { time: 480, label: "8:00",  speed: 65, speedEndurance: 72, lactate: 68, vo2max: 90, threshold: 88, aerobic: 85 },
+    { time: 510, label: "8:30",  speed: 58, speedEndurance: 65, lactate: 62, vo2max: 85, threshold: 82, aerobic: 80 },
+    { time: 540, label: "9:00",  speed: 52, speedEndurance: 58, lactate: 55, vo2max: 78, threshold: 75, aerobic: 75 },
+    { time: 600, label: "10:00", speed: 45, speedEndurance: 50, lactate: 48, vo2max: 70, threshold: 68, aerobic: 70 },
+  ],
+  5000: [
+    { time: 770, label: "12:50", speed: 55, speedEndurance: 62, lactate: 58, vo2max: 95, threshold: 95, aerobic: 92 },
+    { time: 810, label: "13:30", speed: 50, speedEndurance: 55, lactate: 52, vo2max: 90, threshold: 90, aerobic: 88 },
+    { time: 870, label: "14:30", speed: 45, speedEndurance: 50, lactate: 48, vo2max: 85, threshold: 85, aerobic: 82 },
+    { time: 960, label: "16:00", speed: 40, speedEndurance: 45, lactate: 42, vo2max: 78, threshold: 78, aerobic: 75 },
+    { time: 1080,label: "18:00", speed: 35, speedEndurance: 40, lactate: 38, vo2max: 70, threshold: 70, aerobic: 68 },
+  ],
 };
 
 const SIX_DIMENSIONS = ["speed", "speedEndurance", "lactate", "vo2max", "threshold", "aerobic"];
@@ -85,16 +112,16 @@ const ATHLETE_TYPE_RULES = [
     id: "speed",
     label: "速度型",
     badgeClass: "badge-speed",
-    // V2.0 第五章5.1：绝对速度≥需求-5 且 中段速度耐力≤需求-15
-    test: (s, d) => s.speed >= d.speed - 5 && s.speedEndurance <= d.speedEndurance - 15,
+    // V2.2：绝对速度≥需求-5 且 中段速度耐力≤需求-10
+    test: (s, d) => s.speed >= d.speed - 5 && s.speedEndurance <= d.speedEndurance - 10,
     desc: (event) => `速度储备优秀，${event}米训练应优先补强高速保持能力，同时维持速度优势。`,
   },
   {
     id: "endurance",
     label: "耐力型",
     badgeClass: "badge-endurance",
-    // V2.0 第五章5.2：有氧能力≥需求 且 绝对速度≤需求-15
-    test: (s, d) => s.aerobic >= d.aerobic && s.speed <= d.speed - 15,
+    // V2.2：有氧能力≥需求 且 绝对速度≤需求-10
+    test: (s, d) => s.aerobic >= d.aerobic && s.speed <= d.speed - 10,
     desc: (event) => `耐力基础优秀，${event}米训练应重点提升速度储备和爆发力，把耐力优势转化为专项速度。`,
   },
   {
@@ -102,7 +129,7 @@ const ATHLETE_TYPE_RULES = [
     label: "能力型",
     badgeClass: "badge-balanced",
     test: () => true,
-    desc: (event) => `各维度较为均衡，${event}米训练按项目需求分配重点，均衡提升同时补强最弱维度。`,
+    desc: (event) => `各维度较为均衡，${event}米训练按目标需求分配重点，均衡提升同时补强最弱维度。`,
   },
 ];
 
@@ -110,7 +137,7 @@ const WEAKNESS_RULES = [
   {
     id: "speed_deficit",
     gapKey: "speed",
-    test: (s, d) => s.speed <= d.speed - 15,
+    test: (s, d) => s.speed <= d.speed - 10,
     type: (event) => `${event}米速度短板`,
     factor: "绝对速度不足",
     adjustment: "速度训练 +10%，增加 30-80m 冲刺和短距离高速跑",
@@ -119,7 +146,7 @@ const WEAKNESS_RULES = [
   {
     id: "speedEndurance_deficit",
     gapKey: "speedEndurance",
-    test: (s, d) => s.speedEndurance <= d.speedEndurance - 15,
+    test: (s, d) => s.speedEndurance <= d.speedEndurance - 10,
     type: (event) => `${event}米速度耐力短板`,
     factor: "中段速度保持能力不足",
     adjustment: "速度耐力训练 +15%，增加 300-600m 专项训练",
@@ -128,7 +155,7 @@ const WEAKNESS_RULES = [
   {
     id: "lactate_deficit",
     gapKey: "lactate",
-    test: (s, d) => s.lactate <= d.lactate - 15,
+    test: (s, d) => s.lactate <= d.lactate - 10,
     type: (event) => `${event}米乳酸耐受短板`,
     factor: "末段乳酸能力不足",
     adjustment: "乳酸耐受训练 +15%，增加 500-600m 高强度段落",
@@ -137,7 +164,7 @@ const WEAKNESS_RULES = [
   {
     id: "vo2max_deficit",
     gapKey: "vo2max",
-    test: (s, d) => s.vo2max <= d.vo2max - 15,
+    test: (s, d) => s.vo2max <= d.vo2max - 10,
     type: (event) => `${event}米 VO₂max 短板`,
     factor: "最大摄氧能力不足",
     adjustment: "VO₂max 间歇 +15%，增加 800-1600m 长间歇",
@@ -146,7 +173,7 @@ const WEAKNESS_RULES = [
   {
     id: "threshold_deficit",
     gapKey: "threshold",
-    test: (s, d) => s.threshold <= d.threshold - 15,
+    test: (s, d) => s.threshold <= d.threshold - 10,
     type: (event) => `${event}米乳酸阈短板`,
     factor: "乳酸阈能力不足",
     adjustment: "阈值训练 +15%，增加节奏跑和阈值间歇",
@@ -155,7 +182,7 @@ const WEAKNESS_RULES = [
   {
     id: "aerobic_deficit",
     gapKey: "aerobic",
-    test: (s, d) => s.aerobic <= d.aerobic - 15,
+    test: (s, d) => s.aerobic <= d.aerobic - 10,
     type: (event) => `${event}米有氧短板`,
     factor: "有氧基础不足",
     adjustment: "有氧跑量 +15%，延长长跑距离和轻松跑时间",
@@ -640,24 +667,20 @@ function analyzeAthlete(input) {
   };
 }
 
-// V2.1 3.5：能力差距等级模型
+// V2.2 第四章4.4：能力差距等级模型（3级制）
 // 取消"适配评分"，改为能力差距等级判断
 function getGapLevel(gap) {
-  if (gap >= 15) return { level: "advantage", label: "明显优势", cls: "gap-advantage" };
-  if (gap >= 5) return { level: "sufficient", label: "能力充足", cls: "gap-sufficient" };
-  if (gap >= -5) return { level: "matched", label: "基本匹配", cls: "gap-matched" };
-  if (gap >= -15) return { level: "insufficient", label: "存在不足", cls: "gap-insufficient" };
-  return { level: "deficit", label: "明显短板", cls: "gap-deficit" };
+  if (gap >= 10) return { level: "advantage", label: "优势", cls: "gap-advantage" };
+  if (gap >= -10) return { level: "matched", label: "满足", cls: "gap-matched" };
+  return { level: "deficit", label: "限制因素", cls: "gap-deficit" };
 }
 
-// V2.1 3.7：定性标签输出
+// V2.2 第四章3.7：定性标签输出
 // 系统不向用户展示复杂分数，改用定性标签
 function getQualitativeLabel(gap) {
-  if (gap >= 15) return { label: "优秀", cls: "qual-excellent" };
-  if (gap >= 5) return { label: "充足", cls: "qual-sufficient" };
-  if (gap >= -5) return { label: "良好", cls: "qual-good" };
-  if (gap >= -15) return { label: "需要提升", cls: "qual-improve" };
-  return { label: "明显短板", cls: "qual-deficit" };
+  if (gap >= 10) return { label: "优势", cls: "qual-excellent" };
+  if (gap >= -10) return { label: "满足", cls: "qual-good" };
+  return { label: "需要提升", cls: "qual-deficit" };
 }
 
 // V2.0 第六章：异常数据检测
@@ -723,14 +746,53 @@ function deriveGoalTimes(event, goalTime) {
 }
 
 function calculateGoalDemandScores(event, goalTime, estimated) {
-  // 使用固定项目需求指数（来自《第四章 项目需求模型》文档）
-  // 不再根据目标成绩动态计算，而是采用文档定义的绝对参考标准，
-  // 确保雷达图准确反映每个项目对各维度能力的真实需求比例。
-  const profile = EVENT_DEMAND_PROFILE[event];
-  if (!profile) {
+  // V2.2 第四章：目标成绩能力模型
+  // 不再使用固定项目需求，改为根据用户输入的目标成绩动态计算六维能力需求
+  // 通过在档位之间线性插值，得到该目标成绩所需的能力画像
+  return calculateTargetProfile(event, goalTime);
+}
+
+// V2.2 第四章：根据目标成绩计算六维能力需求（线性插值）
+function calculateTargetProfile(event, targetTime) {
+  const tiers = TARGET_PERFORMANCE_MODEL[event];
+  if (!tiers || !tiers.length) {
     return { speed: 70, speedEndurance: 70, lactate: 70, vo2max: 70, threshold: 70, aerobic: 70 };
   }
-  return { ...profile };
+
+  // 如果目标成绩比最快档位还快，使用最快档位
+  if (targetTime <= tiers[0].time) {
+    return extractProfile(tiers[0]);
+  }
+  // 如果目标成绩比最慢档位还慢，使用最慢档位
+  const last = tiers[tiers.length - 1];
+  if (targetTime >= last.time) {
+    return extractProfile(last);
+  }
+
+  // 找到目标成绩所在的区间，进行线性插值
+  for (let i = 0; i < tiers.length - 1; i++) {
+    const lower = tiers[i];
+    const upper = tiers[i + 1];
+    if (targetTime >= lower.time && targetTime <= upper.time) {
+      const ratio = (targetTime - lower.time) / (upper.time - lower.time);
+      const result = {};
+      SIX_DIMENSIONS.forEach((dim) => {
+        // 时间越慢（ratio越大），能力需求越低
+        result[dim] = Math.round(lower[dim] + (upper[dim] - lower[dim]) * ratio);
+      });
+      return result;
+    }
+  }
+
+  return extractProfile(tiers[0]);
+}
+
+function extractProfile(tier) {
+  const result = {};
+  SIX_DIMENSIONS.forEach((dim) => {
+    result[dim] = tier[dim];
+  });
+  return result;
 }
 
 function classifyAthleteType(scores, goalDemands, event) {
@@ -756,7 +818,7 @@ function analyzeWeaknesses(scores, goalDemands, event, athleteType) {
     const dim = rule.gapKey || rule.id.replace("_deficit", "");
     const gap = scores[dim] != null && goalDemands[dim] != null
       ? goalDemands[dim] - scores[dim]
-      : 15;
+      : 10;
     return {
       type: rule.type(eventName),
       factor: rule.factor,
@@ -1081,7 +1143,7 @@ function renderSummary(input, analysis) {
       const gapLabel = gapInfo ? gapInfo.label : "—";
       const gapCls = gapInfo ? gapInfo.cls : "";
       const diff = typeof absScore === "number" && typeof demand === "number" ? absScore - demand : 0;
-      const cls = diff > 5 ? "surplus" : diff < -5 ? "deficit" : "balanced";
+      const cls = diff > 10 ? "surplus" : diff < -10 ? "deficit" : "balanced";
       const sign = diff > 0 ? "+" : "";
       return `<tr><td>${LABELS[dim]}</td><td>${absScore}</td><td>${demand}</td><td class="${cls}">${sign}${diff}</td><td class="${gapCls}">${gapLabel}</td></tr>`;
     })
@@ -1120,7 +1182,7 @@ function renderSummary(input, analysis) {
   // V2.0 第七章：教练语言描述优势
   const advantageDims = SIX_DIMENSIONS
     .filter((d) => analysis.scores[d] != null && analysis.goalDemands[d] != null)
-    .filter((d) => analysis.scores[d] >= analysis.goalDemands[d] - 5)
+    .filter((d) => analysis.scores[d] >= analysis.goalDemands[d] - 10)
     .sort((a, b) => (analysis.scores[b] - analysis.goalDemands[b]) - (analysis.scores[a] - analysis.goalDemands[a]));
   const advantageText = advantageDims.length
     ? advantageDims.slice(0, 2).map((d) => LABELS[d]).join("、")
@@ -1153,7 +1215,7 @@ function renderSummary(input, analysis) {
     <div class="ability-profile">${abilityProfile}</div>
     <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">能力评估详情</h4>
     <table class="demand-table">
-      <thead><tr><th>维度</th><th>能力评分</th><th>项目需求</th><th>差值</th><th>差距等级</th></tr></thead>
+      <thead><tr><th>维度</th><th>能力评分</th><th>目标需求</th><th>差值</th><th>差距等级</th></tr></thead>
       <tbody>${scoreRows}</tbody>
     </table>
     <div class="coach-advice-box">
@@ -1216,8 +1278,8 @@ function generateCoachAdvice(analysis, input) {
     .sort((a, b) => a.gap - b.gap); // 差距最大的排最前
 
   const maxGap = gaps[0];
-  const limitingFactor = maxGap && maxGap.gap < -5
-    ? `${LABELS[maxGap.dim]}（当前${maxGap.score}分，项目需求${maxGap.demand}分，差距${maxGap.gap}分）`
+  const limitingFactor = maxGap && maxGap.gap < -10
+    ? `${LABELS[maxGap.dim]}（当前${maxGap.score}分，目标需求${maxGap.demand}分，差距${maxGap.gap}分）`
     : "各维度基本达标，无明显限制因素";
 
   // 根据最大差距维度生成训练重点
@@ -1230,9 +1292,9 @@ function generateCoachAdvice(analysis, input) {
     aerobic: "夯实有氧基础，延长长跑距离和轻松跑时间",
   };
 
-  const trainingFocus = maxGap && maxGap.gap < -5
+  const trainingFocus = maxGap && maxGap.gap < -10
     ? `${focusMap[maxGap.dim]}，同时保持现有优势维度`
-    : `按${eventName}米项目需求均衡分配训练重点，持续提升专项综合能力`;
+    : `按${eventName}米目标需求均衡分配训练重点，持续提升专项综合能力`;
 
   return { limitingFactor, trainingFocus };
 }
