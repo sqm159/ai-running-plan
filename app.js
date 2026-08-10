@@ -31,8 +31,8 @@ const EVENT_MODELS = {
 
 const LABELS = {
   speed: "绝对速度",
-  speedEndurance: "速度耐力",
-  lactate: "乳酸能力",
+  speedEndurance: "中段速度耐力",
+  lactate: "末段乳酸能力",
   vo2max: "VO₂max",
   aerobic: "有氧能力",
   threshold: "乳酸阈",
@@ -53,10 +53,10 @@ const REFERENCE = {
 };
 
 const EVENT_DEMAND_PROFILE = {
-  800:  { speed: 95, speedEndurance: 95, lactate: 90, vo2max: 70, threshold: 40, aerobic: 35 },
-  1500: { speed: 80, speedEndurance: 85, lactate: 85, vo2max: 90, threshold: 85, aerobic: 70 },
-  3000: { speed: 65, speedEndurance: 75, lactate: 80, vo2max: 90, threshold: 90, aerobic: 85 },
-  5000: { speed: 45, speedEndurance: 60, lactate: 75, vo2max: 90, threshold: 95, aerobic: 95 },
+  800:  { speed: 95, speedEndurance: 95, lactate: 95, vo2max: 70, threshold: 50, aerobic: 40 },
+  1500: { speed: 80, speedEndurance: 85, lactate: 80, vo2max: 90, threshold: 85, aerobic: 75 },
+  3000: { speed: 65, speedEndurance: 75, lactate: 70, vo2max: 90, threshold: 90, aerobic: 85 },
+  5000: { speed: 50, speedEndurance: 60, lactate: 55, vo2max: 90, threshold: 95, aerobic: 95 },
 };
 
 const SIX_DIMENSIONS = ["speed", "speedEndurance", "lactate", "vo2max", "threshold", "aerobic"];
@@ -85,23 +85,17 @@ const ATHLETE_TYPE_RULES = [
     id: "speed",
     label: "速度型",
     badgeClass: "badge-speed",
-    test: (s) => {
-      const speedGroup = avgVal([s.speed, s.speedEndurance, s.lactate]);
-      const enduranceGroup = avgVal([s.aerobic, s.threshold, s.vo2max]);
-      return speedGroup - enduranceGroup > 8;
-    },
-    desc: (event) => `速度和无氧能力突出，${event}米训练应优先补强耐力基础和后程保持能力，同时维持速度优势。`,
+    // V2.0 第五章5.1：绝对速度≥需求-5 且 中段速度耐力≤需求-15
+    test: (s, d) => s.speed >= d.speed - 5 && s.speedEndurance <= d.speedEndurance - 15,
+    desc: (event) => `速度储备优秀，${event}米训练应优先补强高速保持能力，同时维持速度优势。`,
   },
   {
     id: "endurance",
     label: "耐力型",
     badgeClass: "badge-endurance",
-    test: (s) => {
-      const speedGroup = avgVal([s.speed, s.speedEndurance, s.lactate]);
-      const enduranceGroup = avgVal([s.aerobic, s.threshold, s.vo2max]);
-      return enduranceGroup - speedGroup > 8;
-    },
-    desc: (event) => `有氧和阈值能力突出，${event}米训练应重点提升速度储备和乳酸耐受，把耐力优势转化为专项速度。`,
+    // V2.0 第五章5.2：有氧能力≥需求 且 绝对速度≤需求-15
+    test: (s, d) => s.aerobic >= d.aerobic && s.speed <= d.speed - 15,
+    desc: (event) => `耐力基础优秀，${event}米训练应重点提升速度储备和爆发力，把耐力优势转化为专项速度。`,
   },
   {
     id: "balanced",
@@ -114,39 +108,35 @@ const ATHLETE_TYPE_RULES = [
 
 const WEAKNESS_RULES = [
   {
-    id: "speed_surplus_se_deficit",
-    test: (s, d) => s.speed >= d.speed + 10 && s.speedEndurance <= d.speedEndurance - 15,
-    type: (event) => `速度型 ${event}米`,
-    factor: "速度耐力不足",
-    adjustment: "速度耐力训练 +20%，增加 400-600m 组合段落",
-    weightShift: { from: "speed", to: "speedEndurance", amount: 10 },
-  },
-  {
-    id: "se_surplus_speed_deficit",
-    test: (s, d) => s.speedEndurance >= d.speedEndurance + 10 && s.speed <= d.speed - 15,
-    type: (event) => `耐力型 ${event}米`,
-    factor: "绝对速度不足",
-    adjustment: "速度训练 +15%，增加 100-200m 短距离冲刺",
-    weightShift: { from: "speedEndurance", to: "speed", amount: 10 },
-  },
-  {
     id: "speed_deficit",
+    gapKey: "speed",
     test: (s, d) => s.speed <= d.speed - 15,
     type: (event) => `${event}米速度短板`,
     factor: "绝对速度不足",
-    adjustment: "速度训练 +10%，补充短距离爆发力练习",
+    adjustment: "速度训练 +10%，增加 30-80m 冲刺和短距离高速跑",
     weightShift: { from: null, to: "speed", amount: 8 },
   },
   {
+    id: "speedEndurance_deficit",
+    gapKey: "speedEndurance",
+    test: (s, d) => s.speedEndurance <= d.speedEndurance - 15,
+    type: (event) => `${event}米速度耐力短板`,
+    factor: "中段速度保持能力不足",
+    adjustment: "速度耐力训练 +15%，增加 300-600m 专项训练",
+    weightShift: { from: null, to: "speedEndurance", amount: 8 },
+  },
+  {
     id: "lactate_deficit",
+    gapKey: "lactate",
     test: (s, d) => s.lactate <= d.lactate - 15,
     type: (event) => `${event}米乳酸耐受短板`,
-    factor: "乳酸能力不足",
+    factor: "末段乳酸能力不足",
     adjustment: "乳酸耐受训练 +15%，增加 500-600m 高强度段落",
     weightShift: { from: null, to: "speedEndurance", amount: 8 },
   },
   {
     id: "vo2max_deficit",
+    gapKey: "vo2max",
     test: (s, d) => s.vo2max <= d.vo2max - 15,
     type: (event) => `${event}米 VO₂max 短板`,
     factor: "最大摄氧能力不足",
@@ -155,14 +145,16 @@ const WEAKNESS_RULES = [
   },
   {
     id: "threshold_deficit",
+    gapKey: "threshold",
     test: (s, d) => s.threshold <= d.threshold - 15,
     type: (event) => `${event}米乳酸阈短板`,
     factor: "乳酸阈能力不足",
-    adjustment: "阈值训练 +15%，增加 1600-2000m 节奏跑",
+    adjustment: "阈值训练 +15%，增加节奏跑和阈值间歇",
     weightShift: { from: null, to: "threshold", amount: 8 },
   },
   {
     id: "aerobic_deficit",
+    gapKey: "aerobic",
     test: (s, d) => s.aerobic <= d.aerobic - 15,
     type: (event) => `${event}米有氧短板`,
     factor: "有氧基础不足",
@@ -571,12 +563,14 @@ function clamp(value, min, max) {
 function analyzeAthlete(input) {
   const t = input.times;
   const estimated = estimateMissingTimes(t, input.event, input.goalTime);
+
+  // V2.0 第二章：六维能力评分
   const speed = scoreFromTime(REFERENCE.speed400, estimated[400], 2.1);
-  const lactate = scoreFromTime(REFERENCE.lactate600, estimated[600], 2.4);
-  const speedEndurance = scoreSpeedEndurance(estimated[400], estimated[800]);
+  const speedEndurance = scoreSpeedEndurance(estimated[400], estimated[600]);
+  const lactate = scoreLactate(estimated[600], estimated[800]);
   const vo2max = scoreVo2(estimated);
-  const aerobic = scoreFromTime(REFERENCE.t10000, estimated[10000], 2);
-  const threshold = scoreThreshold(input.event, estimated);
+  const aerobic = scoreAerobic(estimated);
+  const threshold = scoreThreshold(estimated);
   const speedReserve = scoreFromTime(REFERENCE.t1500, estimated[1500], 1.7);
   const rawScores = {
     speed,
@@ -601,7 +595,12 @@ function analyzeAthlete(input) {
 
   const goalDemands = calculateGoalDemandScores(input.event, input.goalTime, estimated);
 
-  const athleteType = classifyAthleteType(correctedScores, input.event);
+  // V2.0 第三章：双层评分体系
+  // 绝对能力评分 = 当前能力评分（距离世界顶尖水平的距离）
+  // 项目适配评分 = 当前能力是否满足目标项目需求
+  const adaptationScores = calculateAdaptationScores(correctedScores, goalDemands);
+
+  const athleteType = classifyAthleteType(correctedScores, goalDemands, input.event);
 
   const weaknessAnalysis = analyzeWeaknesses(correctedScores, goalDemands, input.event, athleteType);
 
@@ -611,15 +610,19 @@ function analyzeAthlete(input) {
     Object.entries(input.model.weights).reduce((sum, [key, weight]) => sum + correctedScores[key] * weight, 0)
   );
   const weakKeys = Object.keys(input.model.weights)
-    .sort((a, b) => correctedScores[a] - correctedScores[b])
+    .sort((a, b) => (correctedScores[a] - goalDemands[a]) - (correctedScores[b] - goalDemands[b]))
     .slice(0, 3);
   const goalDifficulty = rateGoalDifficulty(input.event, input.goalTime, estimated[input.event]);
+
+  // V2.0 第六章：异常数据检测
+  const anomalies = detectAnomalies(input.times);
 
   return {
     scores: correctedScores,
     rawScores,
     ageCoef,
     goalDemands,
+    adaptationScores,
     athleteType,
     weaknessAnalysis,
     weightResult,
@@ -627,7 +630,47 @@ function analyzeAthlete(input) {
     weightedScore,
     estimated,
     goalDifficulty,
+    anomalies,
   };
+}
+
+// V2.0 第三章3.3：项目适配评分
+// 回答"当前能力是否满足目标项目需求"，用于训练决策
+function calculateAdaptationScores(currentScores, goalDemands) {
+  const adaptation = {};
+  SIX_DIMENSIONS.forEach((dim) => {
+    const current = currentScores[dim];
+    const demand = goalDemands[dim];
+    if (current != null && demand != null && demand > 0) {
+      // 适配评分 = 当前能力 / 项目需求 * 100，超过100表示已达标
+      adaptation[dim] = Math.round(clamp((current / demand) * 100, 0, 120));
+    } else {
+      adaptation[dim] = null;
+    }
+  });
+  return adaptation;
+}
+
+// V2.0 第六章：异常数据检测
+function detectAnomalies(times) {
+  const anomalies = [];
+  const checks = [
+    { a: 400, b: 800, min: 1.9, max: 2.5 },
+    { a: 400, b: 1500, min: 3.8, max: 5.2 },
+    { a: 800, b: 1500, min: 1.8, max: 2.4 },
+    { a: 1500, b: 3000, min: 1.85, max: 2.3 },
+    { a: 3000, b: 5000, min: 1.55, max: 1.85 },
+    { a: 5000, b: 10000, min: 1.9, max: 2.2 },
+  ];
+  checks.forEach(({ a, b, min, max }) => {
+    if (times[a] && times[b]) {
+      const ratio = times[b] / times[a];
+      if (ratio < min || ratio > max) {
+        anomalies.push(`${a}米与${b}米成绩组合不符合常规（比值${ratio.toFixed(2)}），请检查输入。`);
+      }
+    }
+  });
+  return anomalies;
 }
 
 function calculateAgeCorrection(age) {
@@ -681,9 +724,9 @@ function calculateGoalDemandScores(event, goalTime, estimated) {
   return { ...profile };
 }
 
-function classifyAthleteType(scores, event) {
+function classifyAthleteType(scores, goalDemands, event) {
   const eventName = EVENT_MODELS[event].name.replace(" 米", "");
-  const rule = ATHLETE_TYPE_RULES.find((r) => r.test(scores));
+  const rule = ATHLETE_TYPE_RULES.find((r) => r.test(scores, goalDemands));
   return {
     id: rule.id,
     label: rule.label,
@@ -695,87 +738,46 @@ function classifyAthleteType(scores, event) {
 function analyzeWeaknesses(scores, goalDemands, event, athleteType) {
   const eventName = EVENT_MODELS[event].name.replace(" 米", "");
 
-  const speedDims = ["speed", "speedEndurance", "lactate"];
-  const enduranceDims = ["aerobic", "threshold", "vo2max"];
+  // V2.0 第五章：短板识别
+  // 找出所有满足条件的短板规则
+  const matched = WEAKNESS_RULES.filter((rule) => rule.test(scores, goalDemands));
 
-  const suppressRules = {
-    speed: ["speed_deficit"],
-    endurance: ["aerobic_deficit", "threshold_deficit", "vo2max_deficit"],
-    balanced: [],
-  };
-  const suppressed = suppressRules[athleteType.id] || [];
-
-  const matched = WEAKNESS_RULES.filter((rule) => {
-    if (suppressed.includes(rule.id)) return false;
-    return rule.test(scores, goalDemands);
-  });
-
-  const notes = [];
-
-  if (athleteType.id === "speed") {
-    const speedAvg = avgVal(speedDims.map((d) => scores[d]));
-    const speedDemandAvg = avgVal(speedDims.map((d) => goalDemands[d]));
-    if (speedAvg < speedDemandAvg - 5) {
-      notes.push({
-        type: `${eventName}米速度型`,
-        factor: "速度相对优势，但距离目标成绩仍有差距",
-        adjustment: "维持速度训练质量，把速度优势转化为专项成绩，同时优先补强耐力侧短板",
-        weightShift: null,
-      });
-    }
-    const weakestEndurance = enduranceDims
-      .filter((d) => scores[d] != null)
-      .sort((a, b) => (scores[a] - goalDemands[a]) - (scores[b] - goalDemands[b]))[0];
-    if (weakestEndurance && scores[weakestEndurance] < goalDemands[weakestEndurance] - 5) {
-      notes.push({
-        type: `${eventName}米速度型`,
-        factor: `${LABELS[weakestEndurance]}是主要限制因素`,
-        adjustment: `重点补强${LABELS[weakestEndurance]}，将速度优势转化为全程表现`,
-        weightShift: { from: null, to: weakestEndurance, amount: 10 },
-      });
-    }
-  }
-
-  if (athleteType.id === "endurance") {
-    const endAvg = avgVal(enduranceDims.map((d) => scores[d]));
-    const endDemandAvg = avgVal(enduranceDims.map((d) => goalDemands[d]));
-    if (endAvg < endDemandAvg - 5) {
-      notes.push({
-        type: `${eventName}米耐力型`,
-        factor: "耐力相对优势，但距离目标成绩仍有差距",
-        adjustment: "维持耐力训练基础，把耐力优势转化为专项速度，同时优先补强速度侧短板",
-        weightShift: null,
-      });
-    }
-    const weakestSpeed = speedDims
-      .filter((d) => scores[d] != null)
-      .sort((a, b) => (scores[a] - goalDemands[a]) - (scores[b] - goalDemands[b]))[0];
-    if (weakestSpeed && scores[weakestSpeed] < goalDemands[weakestSpeed] - 5) {
-      notes.push({
-        type: `${eventName}米耐力型`,
-        factor: `${LABELS[weakestSpeed]}是主要限制因素`,
-        adjustment: `重点补强${LABELS[weakestSpeed]}，提升速度储备以匹配耐力基础`,
-        weightShift: { from: null, to: weakestSpeed, amount: 10 },
-      });
-    }
-  }
-
-  const results = [...notes, ...matched.map((rule) => ({
-    type: rule.type(eventName),
-    factor: rule.factor,
-    adjustment: rule.adjustment,
-    weightShift: rule.weightShift,
-  }))];
+  // 按差距大小排序，差距最大的排在前面
+  const results = matched.map((rule) => {
+    const dim = rule.gapKey || rule.id.replace("_deficit", "");
+    const gap = scores[dim] != null && goalDemands[dim] != null
+      ? goalDemands[dim] - scores[dim]
+      : 15;
+    return {
+      type: rule.type(eventName),
+      factor: rule.factor,
+      adjustment: rule.adjustment,
+      weightShift: rule.weightShift,
+      gap,
+    };
+  }).sort((a, b) => b.gap - a.gap);
 
   if (!results.length) {
-    const weakest = SIX_DIMENSIONS
-      .filter((d) => scores[d] != null)
-      .sort((a, b) => scores[a] - scores[b])[0];
+    // V2.0 第五章：找差距最大的能力作为主要限制因素
+    const dims = SIX_DIMENSIONS.filter((d) => scores[d] != null && goalDemands[d] != null);
+    if (dims.length) {
+      const weakest = dims
+        .sort((a, b) => (scores[a] - goalDemands[a]) - (scores[b] - goalDemands[b]))[0];
+      const gap = goalDemands[weakest] - scores[weakest];
+      return [{
+        type: `${eventName}米${athleteType.label}运动员`,
+        factor: `${LABELS[weakest]}是主要限制因素`,
+        adjustment: `重点补强${LABELS[weakest]}，当前差距${gap}分`,
+        weightShift: { from: null, to: weakest, amount: 8 },
+        gap,
+      }];
+    }
     return [{
       type: `${eventName}米均衡型`,
-      factor: `${LABELS[weakest]}相对偏弱`,
-      adjustment: `维持标准训练分配，适当增加${LABELS[weakest]}相关训练内容`,
+      factor: "各维度基本达标",
+      adjustment: "维持标准训练分配，按周期计划推进",
       weightShift: null,
+      gap: 0,
     }];
   }
 
@@ -837,29 +839,59 @@ function avgVal(values) {
   return valid.length ? average(valid) : 0;
 }
 
-function scoreSpeedEndurance(t400, t800) {
-  if (!t400 || !t800) return null;
-  const ratio = (2 * t400) / t800;
-  return clamp(100 * Math.pow(ratio / REFERENCE.speedEnduranceRatio800, 2.5), 25, 100);
+function scoreSpeedEndurance(t400, t600) {
+  // V2.0 第二章2.2：中段速度耐力
+  // 比较400m速度延伸后的理论600m能力与实际600m成绩
+  // 中段速度保持率 = 理论600m时间 / 实际600m时间
+  if (!t400 || !t600) return null;
+  const theoretical600 = t400 * (REFERENCE.lactate600 / REFERENCE.speed400);
+  const ratio = theoretical600 / t600;
+  return clamp(100 * Math.pow(ratio, 2.5), 25, 100);
+}
+
+function scoreLactate(t600, t800) {
+  // V2.0 第二章2.3：末段乳酸能力
+  // 计算600m结束后的最后200m速度下降程度
+  // 末段速度下降 = 最后200m时间 - 前200m平均时间
+  // 下降越小，乳酸能力越强
+  if (!t600 || !t800) return null;
+  const last200 = t800 - t600;
+  const avg200 = t600 / 3;
+  const dropRatio = last200 / avg200;
+  return clamp(100 * Math.pow(1 / dropRatio, 3), 25, 100);
 }
 
 function scoreVo2(times) {
+  // V2.0 第二章2.4：VO₂max能力
+  // 数据来源：1500m, 3000m
   const candidates = [
     scoreFromTime(REFERENCE.t1500, times[1500], 1.9),
     scoreFromTime(REFERENCE.t3000, times[3000], 2.0),
-    scoreFromTime(REFERENCE.t5000, times[5000], 2.0),
   ].filter(Boolean);
   return candidates.length ? average(candidates) : null;
 }
 
-function scoreThreshold(event, times) {
-  const eventTime = times[event] || times[5000] || times[3000];
-  const t10k = times[10000];
-  if (!eventTime || !t10k) return null;
-  const eventSpeed = Number(event) / eventTime;
-  const thresholdSpeed = 10000 / t10k;
-  const targetRatio = event === "5000" ? 0.925 : event === "3000" ? 0.89 : 0.86;
-  return clamp(100 * Math.pow(thresholdSpeed / eventSpeed / targetRatio, 2), 25, 100);
+function scoreAerobic(times) {
+  // V2.0 第二章2.5：有氧能力
+  // 数据来源：3000m, 5000m, 10km
+  const candidates = [
+    scoreFromTime(REFERENCE.t3000, times[3000], 2.0),
+    scoreFromTime(REFERENCE.t5000, times[5000], 2.0),
+    scoreFromTime(REFERENCE.t10000, times[10000], 2.0),
+  ].filter(Boolean);
+  return candidates.length ? average(candidates) : null;
+}
+
+function scoreThreshold(times) {
+  // V2.0 第二章2.6：乳酸阈能力
+  // 数据来源：5000m, 10km
+  // 注意：1500米成绩不能直接代表乳酸阈能力
+  const candidates = [
+    times[5000] ? scoreFromTime(REFERENCE.t5000, times[5000], 1.8) : null,
+    times[10000] ? scoreFromTime(REFERENCE.t10000, times[10000], 1.8) : null,
+  ].filter(Boolean);
+  if (!candidates.length) return null;
+  return average(candidates);
 }
 
 function inferFallbackScore(key, scores) {
@@ -1021,21 +1053,26 @@ function buildPaceHint(goalTime, event) {
 }
 
 function renderSummary(input, analysis) {
-  const scoreRows = Object.keys(input.model.weights)
-    .map((key) => scoreRowWithDemand(key, analysis.scores[key], analysis.goalDemands[key]))
-    .join("");
+  // V2.0 第七章：输出教练化语言
   const weakText = analysis.weakKeys.map((key) => LABELS[key]).join("、");
   const focusText = input.model.focus.join("、");
-
   const typeBadge = analysis.athleteType;
-  const demandTableRows = SIX_DIMENSIONS
+
+  // V2.0 第六章：异常数据警告
+  const anomalyWarning = analysis.anomalies?.length
+    ? `<div class="adjustment-box" style="border-color:var(--red);background:linear-gradient(180deg,#fff5f4,#fef0ee)"><strong style="color:var(--red)">⚠ 数据异常提醒</strong>${analysis.anomalies.map((a) => `<p style="color:#a04030">${a}</p>`).join("")}</div>`
+    : "";
+
+  // V2.0 第三章：双层评分展示
+  const scoreRows = SIX_DIMENSIONS
     .map((dim) => {
-      const current = analysis.scores[dim] ?? "—";
+      const absScore = analysis.scores[dim] ?? "—";
       const demand = analysis.goalDemands[dim] ?? "—";
-      const diff = typeof current === "number" && typeof demand === "number" ? current - demand : 0;
+      const adapt = analysis.adaptationScores?.[dim] ?? "—";
+      const diff = typeof absScore === "number" && typeof demand === "number" ? absScore - demand : 0;
       const cls = diff > 5 ? "surplus" : diff < -5 ? "deficit" : "balanced";
       const sign = diff > 0 ? "+" : "";
-      return `<tr><td>${LABELS[dim]}</td><td>${current}</td><td>${demand}</td><td class="${cls}">${sign}${diff}</td></tr>`;
+      return `<tr><td>${LABELS[dim]}</td><td>${absScore}</td><td>${demand}</td><td class="${cls}">${sign}${diff}</td><td>${adapt}</td></tr>`;
     })
     .join("");
 
@@ -1053,16 +1090,30 @@ function renderSummary(input, analysis) {
     ? `<div class="adjustment-box"><strong>动态调整</strong>${input.adjustment.notes.map((note) => `<p>${note}</p>`).join("")}</div>`
     : "";
 
+  // V2.0 第七章：教练语言描述优势
+  const advantageDims = SIX_DIMENSIONS
+    .filter((d) => analysis.scores[d] != null && analysis.goalDemands[d] != null)
+    .filter((d) => analysis.scores[d] >= analysis.goalDemands[d] - 5)
+    .sort((a, b) => (analysis.scores[b] - analysis.goalDemands[b]) - (analysis.scores[a] - analysis.goalDemands[a]));
+  const advantageText = advantageDims.length
+    ? advantageDims.slice(0, 2).map((d) => LABELS[d]).join("、")
+    : "各维度均有提升空间";
+
   document.getElementById("summary").innerHTML = `
     <p class="eyebrow">Analysis</p>
     <h2>${input.model.name} 训练分析</h2>
+    ${anomalyWarning}
     <div class="athlete-type-box">
       <span class="athlete-type-badge ${typeBadge.badgeClass}">${typeBadge.label}</span>
       <span class="athlete-type-desc">${typeBadge.description}</span>
     </div>
     <div class="metric">
-      <span>专项综合评分（年龄修正系数 ${analysis.ageCoef}）</span>
-      <strong>${analysis.weightedScore}/100</strong>
+      <span>运动员类型：${typeBadge.label}${input.model.name}运动员（年龄修正系数 ${analysis.ageCoef}）</span>
+      <strong>专项综合评分 ${analysis.weightedScore}/100</strong>
+    </div>
+    <div class="metric" style="margin-top:8px">
+      <span>优势：${advantageText}</span>
+      <strong>限制因素：${weakText || "—"}</strong>
     </div>
     <div class="radar-section">
       <canvas class="radar-canvas" id="radarChart" width="360" height="360"></canvas>
@@ -1071,11 +1122,10 @@ function renderSummary(input, analysis) {
         <span><span class="dot dot-target"></span>目标需求</span>
       </div>
     </div>
-    <div class="score-list">${scoreRows}</div>
-    <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">目标需求对比</h4>
+    <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">能力评估详情（双层评分）</h4>
     <table class="demand-table">
-      <thead><tr><th>维度</th><th>当前</th><th>需求</th><th>差值</th></tr></thead>
-      <tbody>${demandTableRows}</tbody>
+      <thead><tr><th>维度</th><th>绝对能力</th><th>项目需求</th><th>差值</th><th>适配评分</th></tr></thead>
+      <tbody>${scoreRows}</tbody>
     </table>
     <div class="weakness-box">
       <h4>短板识别与训练调整</h4>
@@ -1104,13 +1154,13 @@ function renderSummary(input, analysis) {
     ` : ""}
     <div class="pill-list">
       <span class="pill">类型：${typeBadge.label}</span>
-      <span class="pill">重点：${focusText}</span>
+      <span class="pill">优势：${advantageText}</span>
       <span class="pill">短板：${weakText}</span>
       <span class="pill">周期：${input.weeks} 周</span>
       <span class="pill">强度：${input.adjustment?.intensity || "标准"}</span>
     </div>
     ${adjustmentNotes}
-    <p class="advice">${analysis.goalDifficulty}<br>训练建议：优先补强 ${weakText}，同时保留 ${input.model.name} 的专项核心能力。</p>
+    <p class="advice">${analysis.goalDifficulty}<br>训练重点：未来训练周期优先补强 ${weakText}，将训练优势转化为 ${input.model.name} 专项成绩。</p>
   `;
 
   drawRadarChart("radarChart", analysis.scores, analysis.goalDemands);
