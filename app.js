@@ -2,28 +2,28 @@ const EVENT_MODELS = {
   800: {
     name: "800 米",
     goalRef: 105,
-    weights: { speed: 0.30, speedEndurance: 0.30, lactate: 0.25, vo2max: 0.10, aerobic: 0.05 },
+    weights: { speed: 0.22, speedEndurance: 0.25, lactate: 0.23, vo2max: 0.15, aerobic: 0.10, threshold: 0.05 },
     focus: ["速度耐力", "乳酸能力", "绝对速度"],
     longRunCap: 10,
   },
   1500: {
     name: "1500 米",
     goalRef: 210,
-    weights: { vo2max: 0.30, threshold: 0.25, speedEndurance: 0.20, speed: 0.15, aerobic: 0.10 },
+    weights: { vo2max: 0.25, threshold: 0.22, speedEndurance: 0.18, lactate: 0.13, speed: 0.12, aerobic: 0.10 },
     focus: ["VO₂max", "乳酸阈", "速度耐力"],
     longRunCap: 13,
   },
   3000: {
     name: "3000 米",
     goalRef: 455,
-    weights: { vo2max: 0.32, threshold: 0.28, aerobic: 0.25, speedEndurance: 0.10, speed: 0.05 },
+    weights: { vo2max: 0.28, threshold: 0.25, aerobic: 0.22, speedEndurance: 0.12, lactate: 0.08, speed: 0.05 },
     focus: ["VO₂max", "乳酸阈", "有氧能力"],
     longRunCap: 16,
   },
   5000: {
     name: "5000 米",
     goalRef: 780,
-    weights: { aerobic: 0.40, threshold: 0.30, vo2max: 0.20, speedReserve: 0.10 },
+    weights: { aerobic: 0.32, threshold: 0.25, vo2max: 0.20, speedEndurance: 0.10, lactate: 0.08, speed: 0.05 },
     focus: ["有氧能力", "乳酸阈", "VO₂max"],
     longRunCap: 20,
   },
@@ -67,10 +67,10 @@ const AGE_CORRECTION = [
 ];
 
 const DEFAULT_WEIGHTS = {
-  800: { speed: 25, speedEndurance: 40, vo2max: 20, aerobic: 15 },
-  1500: { speed: 15, speedEndurance: 20, vo2max: 30, threshold: 25, aerobic: 10 },
-  3000: { speed: 5, speedEndurance: 10, vo2max: 32, threshold: 28, aerobic: 25 },
-  5000: { speed: 5, speedReserve: 10, vo2max: 20, threshold: 30, aerobic: 35 },
+  800: { speed: 20, speedEndurance: 28, lactate: 22, vo2max: 15, threshold: 5, aerobic: 10 },
+  1500: { speed: 12, speedEndurance: 18, lactate: 13, vo2max: 25, threshold: 22, aerobic: 10 },
+  3000: { speed: 5, speedEndurance: 12, lactate: 8, vo2max: 28, threshold: 25, aerobic: 22 },
+  5000: { speed: 5, speedEndurance: 10, lactate: 8, vo2max: 20, threshold: 25, aerobic: 32 },
 };
 
 const ATHLETE_TYPE_RULES = [
@@ -636,15 +636,18 @@ function deriveGoalTimes(event, goalTime) {
     1500: { 400: 4.45, 600: 2.95, 800: 2.04, 3000: 0.47, 5000: 0.27, 10000: 0.126 },
     3000: { 400: 9.5, 600: 6.25, 800: 4.35, 1500: 2.13, 5000: 0.57, 10000: 0.27 },
     5000: { 400: 16.5, 600: 10.9, 800: 7.7, 1500: 3.7, 3000: 1.75, 10000: 0.48 },
+    10000: { 400: 35, 600: 23, 800: 16.3, 1500: 7.9, 3000: 3.7, 5000: 2.08 },
   };
 
   const goalTimes = {};
   goalTimes[event] = goalTime;
-  const eventFactor = factors[event];
-  if (!eventFactor) return goalTimes;
 
-  for (const [target, factor] of Object.entries(eventFactor)) {
-    goalTimes[target] = goalTime * factor;
+  for (const target of [400, 600, 800, 1500, 3000, 5000, 10000]) {
+    if (String(target) === String(event)) continue;
+    const factor = factors[target]?.[event];
+    if (factor) {
+      goalTimes[target] = goalTime * factor;
+    }
   }
 
   for (const target of [400, 600, 800, 1500, 3000, 5000, 10000]) {
@@ -663,22 +666,33 @@ function deriveGoalTimes(event, goalTime) {
 function calculateGoalDemandScores(event, goalTime, estimated) {
   const goalTimes = deriveGoalTimes(event, goalTime);
 
-  const speedDemand = scoreFromTime(goalTimes[400], estimated[400], 2.1) ?? 100;
-  const lactateDemand = scoreFromTime(goalTimes[600], estimated[600], 2.4) ?? 100;
-  const seDemand = estimated[400] && estimated[800] && goalTimes[400] && goalTimes[800]
-    ? clamp(100 * Math.pow((2 * goalTimes[400] / goalTimes[800]) / ((2 * estimated[400]) / estimated[800]), 2.5), 25, 115)
+  // Demand = absolute ability level needed to achieve the goal
+  // Calculated using the SAME reference standards as current scores,
+  // but with goal times instead of current times.
+  // This ensures the radar chart shows a balanced polygon reflecting
+  // that every event requires ALL abilities, just with different emphasis.
+  const speedDemand = goalTimes[400]
+    ? clamp(100 * Math.pow(REFERENCE.speed400 / goalTimes[400], 2.1), 25, 115)
+    : 100;
+  const lactateDemand = goalTimes[600]
+    ? clamp(100 * Math.pow(REFERENCE.lactate600 / goalTimes[600], 2.4), 25, 115)
+    : 100;
+  const seDemand = goalTimes[400] && goalTimes[800]
+    ? clamp(100 * Math.pow((2 * goalTimes[400] / goalTimes[800]) / REFERENCE.speedEnduranceRatio800, 2.5), 25, 115)
     : 100;
   const vo2Demand = avgVal([
-    scoreFromTime(goalTimes[1500], estimated[1500], 1.9),
-    scoreFromTime(goalTimes[3000], estimated[3000], 2.0),
-    scoreFromTime(goalTimes[5000], estimated[5000], 2.0),
+    goalTimes[1500] ? clamp(100 * Math.pow(REFERENCE.t1500 / goalTimes[1500], 1.9), 25, 115) : null,
+    goalTimes[3000] ? clamp(100 * Math.pow(REFERENCE.t3000 / goalTimes[3000], 2.0), 25, 115) : null,
+    goalTimes[5000] ? clamp(100 * Math.pow(REFERENCE.t5000 / goalTimes[5000], 2.0), 25, 115) : null,
   ]) || 100;
-  const aerobicDemand = scoreFromTime(goalTimes[10000], estimated[10000], 2) ?? 100;
+  const aerobicDemand = goalTimes[10000]
+    ? clamp(100 * Math.pow(REFERENCE.t10000 / goalTimes[10000], 2), 25, 115)
+    : 100;
 
-  const eventTime = estimated[event] || goalTimes[event];
-  const t10k = goalTimes[10000];
-  const thresholdDemand = eventTime && t10k
-    ? clamp(100 * Math.pow((10000 / t10k) / (Number(event) / eventTime) / (event === "5000" ? 0.925 : event === "3000" ? 0.89 : 0.86), 2), 25, 115)
+  const eventGoalTime = goalTimes[event];
+  const t10kGoal = goalTimes[10000];
+  const thresholdDemand = eventGoalTime && t10kGoal
+    ? clamp(100 * Math.pow((10000 / t10kGoal) / (Number(event) / eventGoalTime) / (event === "5000" ? 0.925 : event === "3000" ? 0.89 : 0.86), 2), 25, 115)
     : 100;
 
   return {
