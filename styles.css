@@ -657,6 +657,82 @@ footer {
   color: #1a2a1e;
 }
 
+/* === V2.1 Ability Profile (定性标签) === */
+.ability-profile {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 4px;
+}
+
+.profile-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+
+.profile-item .profile-label {
+  font-weight: 700;
+  color: #2a3a30;
+}
+
+.profile-item .profile-value {
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.qual-excellent { background: #e8f7ed; border-color: rgba(31,122,76,0.2); }
+.qual-excellent .profile-value { color: var(--green-dark); }
+
+.qual-sufficient { background: #f0f7ed; border-color: rgba(107,142,35,0.18); }
+.qual-sufficient .profile-value { color: #5a7a2a; }
+
+.qual-good { background: #f4f5f0; border-color: rgba(100,112,103,0.15); }
+.qual-good .profile-value { color: var(--muted); }
+
+.qual-improve { background: #fff5f0; border-color: rgba(214,122,44,0.18); }
+.qual-improve .profile-value { color: #b5601e; }
+
+.qual-deficit { background: #fef0ee; border-color: rgba(196,82,70,0.2); }
+.qual-deficit .profile-value { color: var(--red); }
+
+/* === V2.1 Gap Level Colors (表格差距等级) === */
+.demand-table .gap-advantage { color: var(--green-dark); font-weight: 700; }
+.demand-table .gap-sufficient { color: var(--green); font-weight: 700; }
+.demand-table .gap-matched { color: var(--muted); font-weight: 600; }
+.demand-table .gap-insufficient { color: var(--orange); font-weight: 700; }
+.demand-table .gap-deficit { color: var(--red); font-weight: 700; }
+
+/* === V2.1 Coach Advice Box === */
+.coach-advice-box {
+  margin: 16px 0;
+  border-radius: 18px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #eef7f2, #e0f0e8);
+  border: 1px solid rgba(31, 122, 76, 0.15);
+}
+
+.coach-advice-box h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--green-dark);
+}
+
+.coach-advice-box p {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #2a3a30;
+}
+
+.coach-advice-box strong {
+  color: var(--green-dark);
+}
+
 /* === Science Grid === */
 .science-grid {
   display: grid;
