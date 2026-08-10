@@ -83,6 +83,11 @@
           </label>
 
           <label>
+            年龄
+            <input id="age" type="number" min="10" max="70" value="20" />
+          </label>
+
+          <label>
             400m 当前成绩
             <input id="time400" placeholder="如 58" />
           </label>
@@ -163,7 +168,7 @@
       <aside class="output-card" id="summary">
         <div class="empty-state">
           <h2>等待生成</h2>
-          <p>填写左侧信息后，这里会展示能力雷达、短板判断和训练周期摘要。</p>
+          <p>填写左侧信息后，这里会展示六维能力雷达图、运动员类型分类、目标需求对比、短板分析和训练权重调整。</p>
         </div>
       </aside>
     </section>
@@ -200,11 +205,86 @@
           <p>内置 300m、400m、500m、1200m、1600m、2000m，800m 专项刺激和 1500m 金字塔训练，并按周轮换训练内容。</p>
         </article>
       </div>
+
+      <div class="section-title" style="margin-top:28px">
+        <p class="eyebrow">Science</p>
+        <h2>各项目科学依据</h2>
+      </div>
+      <div class="science-grid">
+        <article class="science-card">
+          <h3>800 米</h3>
+          <p class="science-desc">非单纯速度或耐力，由无氧能力（速度、乳酸产生）、速度耐力、VO₂max 和乳酸清除能力共同决定。研究显示 800 成绩与峰值摄氧量、乳酸动力学存在显著相关。</p>
+          <div class="science-tags">
+            <span>无氧能力</span><span>速度耐力</span><span>VO₂max</span><span>乳酸清除</span>
+          </div>
+        </article>
+        <article class="science-card">
+          <h3>1500 米</h3>
+          <p class="science-desc">偏混合型，核心依赖 VO₂max、vVO₂max（最大摄氧速度）、乳酸阈、跑步经济性和速度储备。研究表明 VO₂max、乳酸阈速度和跑步经济性都是中距离表现的重要预测因素。</p>
+          <div class="science-tags">
+            <span>VO₂max</span><span>vVO₂max</span><span>乳酸阈</span><span>跑步经济性</span><span>速度储备</span>
+          </div>
+        </article>
+        <article class="science-card">
+          <h3>3000 / 5000 米</h3>
+          <p class="science-desc">明显向有氧倾斜，主要依赖乳酸阈、VO₂max、跑步经济性和有氧耐力。随距离增加，乳酸反应和有氧参数的重要性提高，5000 米更依赖这些因素。</p>
+          <div class="science-tags">
+            <span>乳酸阈</span><span>VO₂max</span><span>跑步经济性</span><span>有氧耐力</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="section-title" style="margin-top:28px">
+        <p class="eyebrow">Formulas</p>
+        <h2>评分公式与标准化方法</h2>
+      </div>
+      <div class="formula-grid">
+        <div class="formula-card">
+          <h4>绝对速度</h4>
+          <code>score = 100 × (参考400m ÷ 实际400m)^2.1</code>
+          <p>参考值 47 秒（精英级 400m），衡量爆发力和最大速度能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>速度耐力</h4>
+          <code>score = 100 × ((2×400m ÷ 800m) ÷ 0.94)^2.5</code>
+          <p>通过 400m 与 800m 的速度保持率评估，反映后程不掉速的能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>乳酸能力</h4>
+          <code>score = 100 × (参考600m ÷ 实际600m)^2.4</code>
+          <p>参考值 74 秒，衡量乳酸堆积下的速度维持能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>VO₂max</h4>
+          <code>score = avg(1500m, 3000m, 5000m 评分)</code>
+          <p>取三个中距离项目的加权平均，反映最大摄氧能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>乳酸阈</h4>
+          <code>score = 100 × (阈值速度 ÷ 专项速度 ÷ 目标比)^2</code>
+          <p>通过 10km 配速与专项配速的比值评估，反映长时间高强度维持能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>有氧能力</h4>
+          <code>score = 100 × (参考10km ÷ 实际10km)^2</code>
+          <p>参考值 1620 秒（27:00），评估基础有氧耐力水平。</p>
+        </div>
+        <div class="formula-card">
+          <h4>年龄修正</h4>
+          <code>最终评分 = 基础评分 × 年龄修正系数</code>
+          <p>18-22 岁系数 1.0，每增加 5 岁递减，青少年适当上调。</p>
+        </div>
+        <div class="formula-card">
+          <h4>目标需求评分</h4>
+          <code>需求分 = 100 × (目标推导时间 ÷ 实际时间)^k</code>
+          <p>以目标成绩推导各维度标准时间，100 = 恰好达标，&gt;100 = 超出需求。</p>
+        </div>
+      </div>
     </section>
   </main>
 
   <footer>
-    <p>本原型依据上传的《AI中长跑训练系统需求与训练模型设计文档 V1.0》实现，用于产品验证与规则引擎演示。</p>
+    <p>本系统依据《AI中长跑训练系统需求与训练模型设计文档 V1.1》实现，包含六维能力评估、运动员分类、目标需求分析、短板识别和训练权重动态调整。</p>
   </footer>
 
   <script src="./app.js"></script>

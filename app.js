@@ -52,6 +52,118 @@ const REFERENCE = {
   vo2: 85,
 };
 
+const SIX_DIMENSIONS = ["speed", "speedEndurance", "lactate", "vo2max", "threshold", "aerobic"];
+
+const AGE_CORRECTION = [
+  { max: 14, coef: 1.12 },
+  { max: 17, coef: 1.06 },
+  { max: 22, coef: 1.0 },
+  { max: 27, coef: 0.98 },
+  { max: 32, coef: 0.95 },
+  { max: 38, coef: 0.91 },
+  { max: 44, coef: 0.86 },
+  { max: 50, coef: 0.81 },
+  { max: 99, coef: 0.75 },
+];
+
+const DEFAULT_WEIGHTS = {
+  800: { speed: 25, speedEndurance: 40, vo2max: 20, aerobic: 15 },
+  1500: { speed: 15, speedEndurance: 20, vo2max: 30, threshold: 25, aerobic: 10 },
+  3000: { speed: 5, speedEndurance: 10, vo2max: 32, threshold: 28, aerobic: 25 },
+  5000: { speed: 5, speedReserve: 10, vo2max: 20, threshold: 30, aerobic: 35 },
+};
+
+const ATHLETE_TYPE_RULES = [
+  {
+    id: "speed",
+    label: "速度型",
+    badgeClass: "badge-speed",
+    test: (s) => {
+      const speedGroup = avgVal([s.speed, s.speedEndurance, s.lactate]);
+      const enduranceGroup = avgVal([s.aerobic, s.threshold, s.vo2max]);
+      return speedGroup - enduranceGroup > 8;
+    },
+    desc: (event) => `速度和无氧能力突出，${event}米训练应优先补强耐力基础和后程保持能力，同时维持速度优势。`,
+  },
+  {
+    id: "endurance",
+    label: "耐力型",
+    badgeClass: "badge-endurance",
+    test: (s) => {
+      const speedGroup = avgVal([s.speed, s.speedEndurance, s.lactate]);
+      const enduranceGroup = avgVal([s.aerobic, s.threshold, s.vo2max]);
+      return enduranceGroup - speedGroup > 8;
+    },
+    desc: (event) => `有氧和阈值能力突出，${event}米训练应重点提升速度储备和乳酸耐受，把耐力优势转化为专项速度。`,
+  },
+  {
+    id: "balanced",
+    label: "能力型",
+    badgeClass: "badge-balanced",
+    test: () => true,
+    desc: (event) => `各维度较为均衡，${event}米训练按项目需求分配重点，均衡提升同时补强最弱维度。`,
+  },
+];
+
+const WEAKNESS_RULES = [
+  {
+    id: "speed_surplus_se_deficit",
+    test: (s, d) => s.speed >= d.speed + 10 && s.speedEndurance <= d.speedEndurance - 10,
+    type: (event) => `速度型 ${event}米`,
+    factor: "速度耐力不足",
+    adjustment: "速度耐力训练 +20%，增加 400-600m 组合段落",
+    weightShift: { from: "speed", to: "speedEndurance", amount: 10 },
+  },
+  {
+    id: "se_surplus_speed_deficit",
+    test: (s, d) => s.speedEndurance >= d.speedEndurance + 10 && s.speed <= d.speed - 10,
+    type: (event) => `耐力型 ${event}米`,
+    factor: "绝对速度不足",
+    adjustment: "速度训练 +15%，增加 100-200m 短距离冲刺",
+    weightShift: { from: "speedEndurance", to: "speed", amount: 10 },
+  },
+  {
+    id: "speed_deficit",
+    test: (s, d) => s.speed <= d.speed - 10,
+    type: (event) => `${event}米速度短板`,
+    factor: "绝对速度不足",
+    adjustment: "速度训练 +10%，补充短距离爆发力练习",
+    weightShift: { from: null, to: "speed", amount: 8 },
+  },
+  {
+    id: "lactate_deficit",
+    test: (s, d) => s.lactate <= d.lactate - 10,
+    type: (event) => `${event}米乳酸耐受短板`,
+    factor: "乳酸能力不足",
+    adjustment: "乳酸耐受训练 +15%，增加 500-600m 高强度段落",
+    weightShift: { from: null, to: "speedEndurance", amount: 8 },
+  },
+  {
+    id: "vo2max_deficit",
+    test: (s, d) => s.vo2max <= d.vo2max - 10,
+    type: (event) => `${event}米 VO₂max 短板`,
+    factor: "最大摄氧能力不足",
+    adjustment: "VO₂max 间歇 +15%，增加 800-1200m 长间歇",
+    weightShift: { from: null, to: "vo2max", amount: 8 },
+  },
+  {
+    id: "threshold_deficit",
+    test: (s, d) => s.threshold <= d.threshold - 10,
+    type: (event) => `${event}米乳酸阈短板`,
+    factor: "乳酸阈能力不足",
+    adjustment: "阈值训练 +15%，增加 1600-2000m 节奏跑",
+    weightShift: { from: null, to: "threshold", amount: 8 },
+  },
+  {
+    id: "aerobic_deficit",
+    test: (s, d) => s.aerobic <= d.aerobic - 10,
+    type: (event) => `${event}米有氧短板`,
+    factor: "有氧基础不足",
+    adjustment: "有氧跑量 +15%，延长长跑距离和轻松跑时间",
+    weightShift: { from: null, to: "aerobic", amount: 8 },
+  },
+];
+
 const TRAINING_LIBRARY = {
   base: {
     speed: [
@@ -333,6 +445,7 @@ function readInput() {
     weeks: Number(document.getElementById("weeks").value),
     goalTime: getTime("goalTime"),
     daysPerWeek: Number(document.getElementById("daysPerWeek").value),
+    age: Number(document.getElementById("age").value) || 20,
     times: {
       400: getTime("time400"),
       600: getTime("time600"),
@@ -473,15 +586,164 @@ function analyzeAthlete(input) {
     rawScores[key] = Math.round(rawScores[key] ?? inferFallbackScore(key, rawScores));
   });
 
+  const ageCoef = calculateAgeCorrection(input.age);
+  const correctedScores = {};
+  Object.keys(rawScores).forEach((key) => {
+    correctedScores[key] = Math.round(clamp(rawScores[key] * ageCoef, 20, 115));
+  });
+
+  const goalDemands = calculateGoalDemandScores(input.event, input.goalTime, estimated);
+
+  const athleteType = classifyAthleteType(correctedScores, input.event);
+
+  const weaknessAnalysis = analyzeWeaknesses(correctedScores, goalDemands, input.event);
+
+  const weightResult = adjustTrainingWeights(input.event, correctedScores, goalDemands, weaknessAnalysis);
+
   const weightedScore = Math.round(
-    Object.entries(input.model.weights).reduce((sum, [key, weight]) => sum + rawScores[key] * weight, 0)
+    Object.entries(input.model.weights).reduce((sum, [key, weight]) => sum + correctedScores[key] * weight, 0)
   );
   const weakKeys = Object.keys(input.model.weights)
-    .sort((a, b) => rawScores[a] - rawScores[b])
+    .sort((a, b) => correctedScores[a] - correctedScores[b])
     .slice(0, 3);
   const goalDifficulty = rateGoalDifficulty(input.event, input.goalTime, estimated[input.event]);
 
-  return { scores: rawScores, weakKeys, weightedScore, estimated, goalDifficulty };
+  return {
+    scores: correctedScores,
+    rawScores,
+    ageCoef,
+    goalDemands,
+    athleteType,
+    weaknessAnalysis,
+    weightResult,
+    weakKeys,
+    weightedScore,
+    estimated,
+    goalDifficulty,
+  };
+}
+
+function calculateAgeCorrection(age) {
+  const entry = AGE_CORRECTION.find((item) => age <= item.max);
+  return entry ? entry.coef : 0.75;
+}
+
+function deriveGoalTimes(event, goalTime) {
+  const factors = {
+    400: { 800: 0.46, 1500: 0.225, 3000: 0.105, 5000: 0.06, 10000: 0.028 },
+    600: { 800: 0.70, 1500: 0.34, 3000: 0.16, 5000: 0.092, 10000: 0.043 },
+    800: { 400: 2.17, 1500: 0.49, 3000: 0.23, 5000: 0.13, 10000: 0.061 },
+    1500: { 400: 4.45, 600: 2.95, 800: 2.04, 3000: 0.47, 5000: 0.27, 10000: 0.126 },
+    3000: { 400: 9.5, 600: 6.25, 800: 4.35, 1500: 2.13, 5000: 0.57, 10000: 0.27 },
+    5000: { 400: 16.5, 600: 10.9, 800: 7.7, 1500: 3.7, 3000: 1.75, 10000: 0.48 },
+  };
+
+  const goalTimes = {};
+  goalTimes[event] = goalTime;
+  const eventFactor = factors[event];
+  if (!eventFactor) return goalTimes;
+
+  for (const [target, factor] of Object.entries(eventFactor)) {
+    goalTimes[target] = goalTime * factor;
+  }
+
+  for (const target of [400, 600, 800, 1500, 3000, 5000, 10000]) {
+    if (goalTimes[target]) continue;
+    const estimates = [];
+    for (const [source, srcTime] of Object.entries(goalTimes)) {
+      const f = factors[target]?.[source];
+      if (srcTime && f) estimates.push(srcTime * f);
+    }
+    if (estimates.length) goalTimes[target] = average(estimates);
+  }
+
+  return goalTimes;
+}
+
+function calculateGoalDemandScores(event, goalTime, estimated) {
+  const goalTimes = deriveGoalTimes(event, goalTime);
+
+  const speedDemand = scoreFromTime(goalTimes[400], estimated[400], 2.1) ?? 100;
+  const lactateDemand = scoreFromTime(goalTimes[600], estimated[600], 2.4) ?? 100;
+  const seDemand = estimated[400] && estimated[800] && goalTimes[400] && goalTimes[800]
+    ? clamp(100 * Math.pow((2 * goalTimes[400] / goalTimes[800]) / ((2 * estimated[400]) / estimated[800]), 2.5), 25, 115)
+    : 100;
+  const vo2Demand = avgVal([
+    scoreFromTime(goalTimes[1500], estimated[1500], 1.9),
+    scoreFromTime(goalTimes[3000], estimated[3000], 2.0),
+    scoreFromTime(goalTimes[5000], estimated[5000], 2.0),
+  ]) || 100;
+  const aerobicDemand = scoreFromTime(goalTimes[10000], estimated[10000], 2) ?? 100;
+
+  const eventTime = estimated[event] || goalTimes[event];
+  const t10k = goalTimes[10000];
+  const thresholdDemand = eventTime && t10k
+    ? clamp(100 * Math.pow((10000 / t10k) / (Number(event) / eventTime) / (event === "5000" ? 0.925 : event === "3000" ? 0.89 : 0.86), 2), 25, 115)
+    : 100;
+
+  return {
+    speed: Math.round(speedDemand),
+    speedEndurance: Math.round(seDemand),
+    lactate: Math.round(lactateDemand),
+    vo2max: Math.round(vo2Demand),
+    threshold: Math.round(thresholdDemand),
+    aerobic: Math.round(aerobicDemand),
+  };
+}
+
+function classifyAthleteType(scores, event) {
+  const eventName = EVENT_MODELS[event].name.replace(" 米", "");
+  const rule = ATHLETE_TYPE_RULES.find((r) => r.test(scores));
+  return {
+    id: rule.id,
+    label: rule.label,
+    badgeClass: rule.badgeClass,
+    description: rule.desc(eventName),
+  };
+}
+
+function analyzeWeaknesses(scores, goalDemands, event) {
+  const eventName = EVENT_MODELS[event].name.replace(" 米", "");
+  const matched = WEAKNESS_RULES.filter((rule) => rule.test(scores, goalDemands));
+
+  if (!matched.length) {
+    const weakest = SIX_DIMENSIONS
+      .filter((d) => scores[d] != null)
+      .sort((a, b) => scores[a] - scores[b])[0];
+    return [{
+      type: `${eventName}米均衡型`,
+      factor: `${LABELS[weakest]}相对偏弱`,
+      adjustment: `维持标准训练分配，适当增加${LABELS[weakest]}相关训练内容`,
+      weightShift: null,
+    }];
+  }
+
+  return matched.map((rule) => ({
+    type: rule.type(eventName),
+    factor: rule.factor,
+    adjustment: rule.adjustment,
+    weightShift: rule.weightShift,
+  }));
+}
+
+function adjustTrainingWeights(event, scores, goalDemands, weaknessAnalysis) {
+  const defaults = { ...DEFAULT_WEIGHTS[event] };
+  const adjusted = { ...defaults };
+
+  weaknessAnalysis.forEach((w) => {
+    if (!w.weightShift) return;
+    const { from, to, amount } = w.weightShift;
+    if (from && adjusted[from] != null) {
+      adjusted[from] = Math.max(5, adjusted[from] - amount);
+    }
+    if (to && adjusted[to] != null) {
+      adjusted[to] = adjusted[to] + amount;
+    } else if (to && adjusted[to] == null) {
+      adjusted[to] = amount;
+    }
+  });
+
+  return { default: defaults, adjusted, changed: JSON.stringify(defaults) !== JSON.stringify(adjusted) };
 }
 
 function estimateMissingTimes(times, event, goalTime) {
@@ -512,6 +774,11 @@ function estimateMissingTimes(times, event, goalTime) {
 
 function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function avgVal(values) {
+  const valid = values.filter((v) => v != null && Number.isFinite(v));
+  return valid.length ? average(valid) : 0;
 }
 
 function scoreSpeedEndurance(t400, t800) {
@@ -611,9 +878,15 @@ function pickEmphasis(input, analysis, phase) {
   const requestedFocus = input.adjustment?.focusKeys || [];
   const avoidKeys = input.adjustment?.avoidKeys || [];
   const removeAvoided = (keys) => keys.filter((key) => !avoidKeys.includes(key));
+
+  const adjustedWeights = analysis.weightResult?.adjusted || input.model.weights;
+  const sortedByWeight = Object.keys(adjustedWeights)
+    .filter((k) => k !== "strength")
+    .sort((a, b) => (adjustedWeights[b] || 0) - (adjustedWeights[a] || 0));
+
   if (phase.id === "base") return removeAvoided([...new Set([...requestedFocus, "aerobic", "strength", analysis.weakKeys[0]])]).slice(0, 3);
   if (phase.id === "taper") return removeAvoided([...new Set([...requestedFocus, "speed", analysis.weakKeys[0], "aerobic"])]).slice(0, 3);
-  return removeAvoided([...new Set([...requestedFocus, analysis.weakKeys[0], analysis.weakKeys[1], ...Object.keys(input.model.weights)])]).slice(0, 3);
+  return removeAvoided([...new Set([...requestedFocus, ...sortedByWeight.slice(0, 2), analysis.weakKeys[0]])]).slice(0, 3);
 }
 
 function buildWeekDays(input, analysis, phase, load, weekNo) {
@@ -693,10 +966,33 @@ function buildPaceHint(goalTime, event) {
 
 function renderSummary(input, analysis) {
   const scoreRows = Object.keys(input.model.weights)
-    .map((key) => scoreRow(key, analysis.scores[key]))
+    .map((key) => scoreRowWithDemand(key, analysis.scores[key], analysis.goalDemands[key]))
     .join("");
   const weakText = analysis.weakKeys.map((key) => LABELS[key]).join("、");
   const focusText = input.model.focus.join("、");
+
+  const typeBadge = analysis.athleteType;
+  const demandTableRows = SIX_DIMENSIONS
+    .map((dim) => {
+      const current = analysis.scores[dim] ?? "—";
+      const demand = analysis.goalDemands[dim] ?? "—";
+      const diff = typeof current === "number" && typeof demand === "number" ? current - demand : 0;
+      const cls = diff > 5 ? "surplus" : diff < -5 ? "deficit" : "balanced";
+      const sign = diff > 0 ? "+" : "";
+      return `<tr><td>${LABELS[dim]}</td><td>${current}</td><td>${demand}</td><td class="${cls}">${sign}${diff}</td></tr>`;
+    })
+    .join("");
+
+  const weaknessItems = analysis.weaknessAnalysis
+    .map((w) => `
+      <div class="weakness-item">
+        <span class="wk-label">类型</span><span class="wk-value">${w.type}</span>
+        <span class="wk-label">限制因素</span><span class="wk-value">${w.factor}</span>
+        <span class="wk-label">训练调整</span><span class="wk-value">${w.adjustment}</span>
+      </div>
+    `)
+    .join("");
+
   const adjustmentNotes = input.adjustment?.notes?.length
     ? `<div class="adjustment-box"><strong>动态调整</strong>${input.adjustment.notes.map((note) => `<p>${note}</p>`).join("")}</div>`
     : "";
@@ -704,12 +1000,54 @@ function renderSummary(input, analysis) {
   document.getElementById("summary").innerHTML = `
     <p class="eyebrow">Analysis</p>
     <h2>${input.model.name} 训练分析</h2>
+    <div class="athlete-type-box">
+      <span class="athlete-type-badge ${typeBadge.badgeClass}">${typeBadge.label}</span>
+      <span class="athlete-type-desc">${typeBadge.description}</span>
+    </div>
     <div class="metric">
-      <span>专项综合评分</span>
+      <span>专项综合评分（年龄修正系数 ${analysis.ageCoef}）</span>
       <strong>${analysis.weightedScore}/100</strong>
     </div>
+    <div class="radar-section">
+      <canvas class="radar-canvas" id="radarChart" width="360" height="360"></canvas>
+      <div class="radar-legend">
+        <span><span class="dot dot-current"></span>当前能力</span>
+        <span><span class="dot dot-target"></span>目标需求</span>
+      </div>
+    </div>
     <div class="score-list">${scoreRows}</div>
+    <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">目标需求对比</h4>
+    <table class="demand-table">
+      <thead><tr><th>维度</th><th>当前</th><th>需求</th><th>差值</th></tr></thead>
+      <tbody>${demandTableRows}</tbody>
+    </table>
+    <div class="weakness-box">
+      <h4>短板识别与训练调整</h4>
+      ${weaknessItems}
+    </div>
+    ${analysis.weightResult.changed ? `
+    <div class="weight-box">
+      <h4>训练权重调整</h4>
+      <div class="weight-comparison">
+        <div class="weight-col">
+          <h5>默认分配</h5>
+          ${Object.keys(analysis.weightResult.default).map((key) => {
+            const v = analysis.weightResult.default[key];
+            return `<div class="weight-bar-item wb-default"><span class="wb-label">${LABELS[key] || key}</span><div class="wb-bar"><span style="width:${(v / 40) * 100}%"></span></div><span class="wb-value">${v}</span></div>`;
+          }).join("")}
+        </div>
+        <div class="weight-col">
+          <h5>调整后分配</h5>
+          ${Object.keys(analysis.weightResult.adjusted).map((key) => {
+            const v = analysis.weightResult.adjusted[key];
+            return `<div class="weight-bar-item wb-adjusted"><span class="wb-label">${LABELS[key] || key}</span><div class="wb-bar"><span style="width:${(v / 40) * 100}%"></span></div><span class="wb-value">${v}</span></div>`;
+          }).join("")}
+        </div>
+      </div>
+    </div>
+    ` : ""}
     <div class="pill-list">
+      <span class="pill">类型：${typeBadge.label}</span>
       <span class="pill">重点：${focusText}</span>
       <span class="pill">短板：${weakText}</span>
       <span class="pill">周期：${input.weeks} 周</span>
@@ -718,17 +1056,119 @@ function renderSummary(input, analysis) {
     ${adjustmentNotes}
     <p class="advice">${analysis.goalDifficulty}<br>训练建议：优先补强 ${weakText}，同时保留 ${input.model.name} 的专项核心能力。</p>
   `;
+
+  drawRadarChart("radarChart", analysis.scores, analysis.goalDemands);
 }
 
-function scoreRow(key, score) {
+function scoreRowWithDemand(key, score) {
   const colorClass = score < 60 ? "low" : score < 78 ? "mid" : "high";
   return `
     <div class="score-row ${colorClass}">
       <span>${LABELS[key]}</span>
-      <div class="bar"><span style="width:${score}%"></span></div>
+      <div class="bar"><span style="width:${Math.min(score, 100)}%"></span></div>
       <strong>${score}</strong>
     </div>
   `;
+}
+
+function drawRadarChart(canvasId, currentScores, targetScores) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const radius = Math.min(cx, cy) - 50;
+  const dims = SIX_DIMENSIONS;
+  const n = dims.length;
+  const angleStep = (Math.PI * 2) / n;
+  const maxVal = 115;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (let level = 1; level <= 5; level++) {
+    const r = (radius * level) / 5;
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const angle = -Math.PI / 2 + i * angleStep;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = level === 5 ? "rgba(100,112,103,0.25)" : "rgba(100,112,103,0.1)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "rgba(100,112,103,0.4)";
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "center";
+  for (let level = 1; level <= 5; level++) {
+    const r = (radius * level) / 5;
+    ctx.fillText(String(level * 20), cx + 3, cy - r + 3);
+  }
+
+  for (let i = 0; i < n; i++) {
+    const angle = -Math.PI / 2 + i * angleStep;
+    const x = cx + Math.cos(angle) * (radius + 28);
+    const y = cy + Math.sin(angle) * (radius + 28);
+    ctx.fillStyle = "#3a4a3f";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(LABELS[dims[i]], x, y);
+  }
+
+  const drawPolygon = (scores, fill, stroke, lineWidth) => {
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const idx = i % n;
+      const val = scores[dims[idx]] ?? 0;
+      const r = (Math.min(val, maxVal) / maxVal) * radius;
+      const angle = -Math.PI / 2 + idx * angleStep;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  };
+
+  drawPolygon(targetScores, "rgba(214,122,44,0.08)", "rgba(214,122,44,0.7)", 2);
+
+  for (let i = 0; i < n; i++) {
+    const val = targetScores[dims[i]] ?? 0;
+    const r = (Math.min(val, maxVal) / maxVal) * radius;
+    const angle = -Math.PI / 2 + i * angleStep;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(214,122,44,0.9)";
+    ctx.fill();
+  }
+
+  drawPolygon(currentScores, "rgba(31,122,76,0.15)", "rgba(31,122,76,0.9)", 2.5);
+
+  for (let i = 0; i < n; i++) {
+    const val = currentScores[dims[i]] ?? 0;
+    const r = (Math.min(val, maxVal) / maxVal) * radius;
+    const angle = -Math.PI / 2 + i * angleStep;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#1f7a4c";
+    ctx.fill();
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
 }
 
 function renderTimeline(phases) {
