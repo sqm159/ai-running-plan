@@ -1081,10 +1081,18 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
   const dims = SIX_DIMENSIONS;
   const n = dims.length;
   const angleStep = (Math.PI * 2) / n;
+  const minVal = 30;
   const maxVal = 115;
+  const range = maxVal - minVal;
+
+  const valToRadius = (val) => {
+    const clamped = Math.max(minVal, Math.min(maxVal, val ?? 0));
+    return ((clamped - minVal) / range) * radius;
+  };
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+  const gridLabels = ["50", "70", "85", "100", "115+"];
   for (let level = 1; level <= 5; level++) {
     const r = (radius * level) / 5;
     ctx.beginPath();
@@ -1095,17 +1103,17 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = level === 5 ? "rgba(100,112,103,0.25)" : "rgba(100,112,103,0.1)";
+    ctx.strokeStyle = level === 5 ? "rgba(100,112,103,0.3)" : "rgba(100,112,103,0.12)";
     ctx.lineWidth = 1;
     ctx.stroke();
   }
 
-  ctx.fillStyle = "rgba(100,112,103,0.4)";
+  ctx.fillStyle = "rgba(100,112,103,0.5)";
   ctx.font = "10px sans-serif";
   ctx.textAlign = "center";
   for (let level = 1; level <= 5; level++) {
     const r = (radius * level) / 5;
-    ctx.fillText(String(level * 20), cx + 3, cy - r + 3);
+    ctx.fillText(gridLabels[level - 1], cx + 3, cy - r + 3);
   }
 
   for (let i = 0; i < n; i++) {
@@ -1113,7 +1121,7 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     const x = cx + Math.cos(angle) * (radius + 28);
     const y = cy + Math.sin(angle) * (radius + 28);
     ctx.fillStyle = "#3a4a3f";
-    ctx.font = "12px sans-serif";
+    ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(LABELS[dims[i]], x, y);
@@ -1123,8 +1131,7 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     ctx.beginPath();
     for (let i = 0; i <= n; i++) {
       const idx = i % n;
-      const val = scores[dims[idx]] ?? 0;
-      const r = (Math.min(val, maxVal) / maxVal) * radius;
+      const r = valToRadius(scores[dims[idx]]);
       const angle = -Math.PI / 2 + idx * angleStep;
       const x = cx + Math.cos(angle) * r;
       const y = cy + Math.sin(angle) * r;
@@ -1139,34 +1146,32 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     ctx.stroke();
   };
 
-  drawPolygon(targetScores, "rgba(214,122,44,0.08)", "rgba(214,122,44,0.7)", 2);
+  drawPolygon(targetScores, "rgba(214,122,44,0.1)", "rgba(214,122,44,0.8)", 2);
 
   for (let i = 0; i < n; i++) {
-    const val = targetScores[dims[i]] ?? 0;
-    const r = (Math.min(val, maxVal) / maxVal) * radius;
-    const angle = -Math.PI / 2 + i * angleStep;
-    const x = cx + Math.cos(angle) * r;
-    const y = cy + Math.sin(angle) * r;
-    ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(214,122,44,0.9)";
-    ctx.fill();
-  }
-
-  drawPolygon(currentScores, "rgba(31,122,76,0.15)", "rgba(31,122,76,0.9)", 2.5);
-
-  for (let i = 0; i < n; i++) {
-    const val = currentScores[dims[i]] ?? 0;
-    const r = (Math.min(val, maxVal) / maxVal) * radius;
+    const r = valToRadius(targetScores[dims[i]]);
     const angle = -Math.PI / 2 + i * angleStep;
     const x = cx + Math.cos(angle) * r;
     const y = cy + Math.sin(angle) * r;
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#d67a2c";
+    ctx.fill();
+  }
+
+  drawPolygon(currentScores, "rgba(31,122,76,0.2)", "rgba(31,122,76,1)", 2.5);
+
+  for (let i = 0; i < n; i++) {
+    const r = valToRadius(currentScores[dims[i]]);
+    const angle = -Math.PI / 2 + i * angleStep;
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
     ctx.fillStyle = "#1f7a4c";
     ctx.fill();
     ctx.strokeStyle = "white";
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 2;
     ctx.stroke();
   }
 }
