@@ -555,6 +555,66 @@ footer {
 .demand-table .deficit { color: var(--red); font-weight: 700; }
 .demand-table .balanced { color: var(--muted); }
 
+/* === Pace Table === */
+.pace-table-box {
+  margin: 10px 0 16px;
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #f6fbff, #eef5fc);
+  border: 1px solid rgba(49, 95, 147, 0.12);
+}
+
+.pace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pace-table th,
+.pace-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(49, 95, 147, 0.08);
+}
+
+.pace-table th {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pace-table .pace-label {
+  font-weight: 700;
+  color: var(--blue);
+  white-space: nowrap;
+}
+
+.pace-table .pace-value {
+  font-weight: 800;
+  color: var(--ink);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.pace-table .pace-desc {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.pace-table .pace-desc small {
+  color: #8a9690;
+  font-size: 11px;
+}
+
+.pace-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 /* === Weakness Analysis === */
 .weakness-box {
   margin: 16px 0;
