@@ -1181,3 +1181,557 @@ textarea {
 
   h1 { font-size: 38px; }
 }
+
+/* =========================================================================
+   V2 训练日历 / 每日日志 / 训练负荷
+   ========================================================================= */
+
+/* ---- 启用课表按钮 + 状态条 ---- */
+.plan-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 14px 0 22px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(31, 122, 76, 0.06);
+  border: 1px solid rgba(31, 122, 76, 0.12);
+}
+
+.plan-status {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.plan-status-active {
+  color: var(--green-dark);
+  font-weight: 700;
+}
+
+.plan-status-active a {
+  color: var(--green);
+  text-decoration: underline;
+}
+
+.plan-status-other {
+  color: var(--orange);
+  font-size: 13px;
+}
+
+/* ---- 弹窗 ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(15, 24, 19, 0.55);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: fadeIn 0.18s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-card {
+  width: min(460px, 100%);
+  background: #fff;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+  animation: popIn 0.22s ease;
+}
+
+@keyframes popIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 22px 8px;
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.modal-close {
+  background: transparent;
+  border: 0;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.modal-close:hover { background: rgba(0, 0, 0, 0.05); }
+
+.modal-body {
+  padding: 8px 22px 18px;
+}
+
+.modal-desc {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.modal-body label {
+  font-size: 13px;
+}
+
+.modal-hint {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 22px 20px;
+  background: #f7faf7;
+}
+
+/* ---- 训练日历 ---- */
+.calendar-page .cal-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+
+.cal-summary-item {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid var(--line);
+}
+
+.cal-summary-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.cal-summary-item strong {
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.cal-weeks {
+  display: grid;
+  gap: 18px;
+}
+
+.cal-week {
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 16px;
+}
+
+.cal-week-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cal-week-title {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.cal-week-phase {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+}
+
+.phase-base { background: var(--blue); }
+.phase-build { background: var(--green); }
+.phase-specific { background: var(--orange); }
+.phase-taper { background: #8a6bd0; }
+
+.cal-week-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cal-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cal-day {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: #f7faf7;
+  border: 1px solid transparent;
+  min-height: 86px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.cal-day:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.cal-day-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cal-date { font-weight: 700; color: var(--ink); }
+
+.cal-day-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.cal-day-status {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: auto;
+}
+
+.cal-day-load {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--green-dark);
+}
+
+.cal-day-future { background: #f3f6f4; }
+.cal-day-past { background: #f7faf7; }
+.cal-day-today {
+  border-color: var(--green);
+  background: rgba(31, 122, 76, 0.08);
+}
+.cal-day-done {
+  background: linear-gradient(180deg, #e8f7ed, #d4eedb);
+  border-color: rgba(31, 122, 76, 0.3);
+}
+.cal-day-partial {
+  background: linear-gradient(180deg, #fff3e0, #ffe9cc);
+  border-color: rgba(214, 122, 44, 0.3);
+}
+.cal-day-skip {
+  background: #f5f5f5;
+  opacity: 0.65;
+}
+.cal-day-missed {
+  background: linear-gradient(180deg, #fdecea, #f9d9d5);
+  border-color: rgba(196, 82, 70, 0.25);
+}
+
+/* ---- 每日训练详情页 ---- */
+.day-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.ghost-button {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.ghost-button:hover { background: #fff; }
+
+.ghost-button.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.day-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.day-plan-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--green-dark);
+  margin: 8px 0;
+}
+
+.day-plan-detail {
+  color: #334039;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.log-form {
+  display: grid;
+  gap: 12px;
+}
+
+.log-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.log-preview {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(31, 122, 76, 0.06);
+  color: var(--green-dark);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.log-preview strong { font-size: 16px; }
+
+.log-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.log-feedback {
+  margin-top: 18px;
+}
+
+.advice-box {
+  border-left: 4px solid var(--green);
+  background: linear-gradient(180deg, #f4faf4, #eaf6ec);
+}
+
+.feedback-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.feedback-list li {
+  margin-bottom: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #34443a;
+}
+
+/* ---- 训练日志历史页 ---- */
+.logs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.logs-list-block {
+  grid-column: 1 / -1;
+}
+
+.logs-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 18px;
+}
+
+.logs-summary > div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f7faf7;
+}
+
+.logs-summary span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.logs-summary strong {
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.logs-bar-chart {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  height: 140px;
+  align-items: end;
+  margin: 12px 0 6px;
+}
+
+.bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+
+.bar-track {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: end;
+  background: #f3f6f4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  width: 100%;
+  border-radius: 8px 8px 0 0;
+  transition: height 0.4s ease;
+  min-height: 4px;
+}
+
+.bar-done { background: linear-gradient(180deg, var(--lime), var(--green)); }
+.bar-partial { background: linear-gradient(180deg, #ffd9a8, var(--orange)); }
+.bar-skip { background: #e0e4e1; }
+.bar-empty { background: #f3f6f4; }
+
+.bar-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.logs-weekly {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  height: 160px;
+  align-items: end;
+  margin: 14px 0 6px;
+}
+
+.weekly-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+
+.weekly-bar {
+  width: 60%;
+  background: linear-gradient(180deg, var(--lime), var(--green));
+  border-radius: 8px 8px 0 0;
+  min-height: 4px;
+  transition: height 0.4s ease;
+}
+
+.weekly-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.weekly-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--green-dark);
+}
+
+.logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.logs-table th,
+.logs-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.logs-table th {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.logs-table td a {
+  color: var(--green);
+  text-decoration: underline;
+}
+
+.logs-table .status-completed { color: var(--green); font-weight: 700; }
+.logs-table .status-partial { color: var(--orange); font-weight: 700; }
+.logs-table .status-skipped { color: var(--muted); }
+.logs-table .status-pending { color: var(--muted); }
+
+/* ---- 响应式 ---- */
+@media (max-width: 880px) {
+  .day-grid,
+  .logs-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cal-week-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .logs-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .cal-week-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cal-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .log-grid {
+    grid-template-columns: 1fr;
+  }
+}

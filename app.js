@@ -1765,6 +1765,260 @@ async function getLatestAnalysis(userId) {
   return data;
 }
 
+async function getAnalysisById(snapshotId) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("analysis_snapshots")
+    .select("*")
+    .eq("id", snapshotId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/* ---- 数据库模块：plan_assignments（课表启用记录） ---- */
+async function getActiveAssignment(userId) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("plan_assignments")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function listAssignments(userId) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("plan_assignments")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function createAssignment(userId, snapshotId, startDate, totalWeeks) {
+  const client = initSupabase();
+  // 先把现有 active 课表置为 inactive
+  const { error: e1 } = await client
+    .from("plan_assignments")
+    .update({ is_active: false })
+    .eq("user_id", userId)
+    .eq("is_active", true);
+  if (e1) throw e1;
+  // 再插入新 active 记录
+  const { data, error } = await client
+    .from("plan_assignments")
+    .insert({
+      user_id: userId,
+      snapshot_id: snapshotId,
+      start_date: startDate,
+      total_weeks: totalWeeks,
+      is_active: true,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function deactivateAssignment(userId, assignmentId) {
+  const client = initSupabase();
+  const { error } = await client
+    .from("plan_assignments")
+    .update({ is_active: false })
+    .eq("id", assignmentId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+/* ---- 数据库模块：training_logs（每日训练日志） ---- */
+async function listTrainingLogs(userId, fromDate, toDate) {
+  const client = initSupabase();
+  let query = client
+    .from("training_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .order("log_date", { ascending: false });
+  if (fromDate) query = query.gte("log_date", fromDate);
+  if (toDate) query = query.lte("log_date", toDate);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+async function getTrainingLog(userId, date) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("training_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("log_date", date)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function upsertTrainingLog(userId, date, payload) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("training_logs")
+    .upsert(
+      {
+        user_id: userId,
+        log_date: date,
+        ...payload,
+      },
+      { onConflict: ["user_id", "log_date"] }
+    )
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function deleteTrainingLog(userId, date) {
+  const client = initSupabase();
+  const { error } = await client
+    .from("training_logs")
+    .delete()
+    .eq("user_id", userId)
+    .eq("log_date", date);
+  if (error) throw error;
+}
+
+/* ---- 训练负荷计算 ---- */
+// 训练负荷 = 训练时长(分钟) × 强度系数
+// 强度系数基于 RPE 推算（若提供心率则综合心率区间校准）
+function rpeToIntensityFactor(rpe) {
+  if (!rpe || rpe < 6) return 0;
+  if (rpe <= 8) return 0.6;   // 轻松
+  if (rpe <= 11) return 0.8;  // 中等
+  if (rpe <= 14) return 1.0;  // 阈值
+  if (rpe <= 17) return 1.2;  // 高强度
+  return 1.4;                  // 极限
+}
+
+// 心率区间 -> 强度系数（基于最大心率估算，作为 RPE 的校准参考）
+function hrToIntensityFactor(avgHr, age) {
+  if (!avgHr || avgHr < 50) return null;
+  const maxHr = age ? 220 - age : 190;
+  const ratio = avgHr / maxHr;
+  if (ratio < 0.6) return 0.5;
+  if (ratio < 0.72) return 0.7;
+  if (ratio < 0.82) return 0.9;
+  if (ratio < 0.9) return 1.1;
+  if (ratio < 0.95) return 1.3;
+  return 1.4;
+}
+
+function calcTrainingLoad(durationMin, rpe, avgHr, age) {
+  if (!durationMin) return 0;
+  const rpeFactor = rpeToIntensityFactor(rpe);
+  const hrFactor = hrToIntensityFactor(avgHr, age);
+  // 若两者都有，取平均；只有 RPE 就用 RPE；只有心率就用心率
+  let factor = rpeFactor;
+  if (hrFactor != null) {
+    factor = rpeFactor > 0 ? (rpeFactor + hrFactor) / 2 : hrFactor;
+  }
+  return Math.round(durationMin * factor * 10) / 10;
+}
+
+/* ---- 日期工具 ---- */
+function formatDateISO(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseDateISO(str) {
+  const [y, m, d] = String(str).split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function diffDays(a, b) {
+  const ms = parseDateISO(a).getTime() - parseDateISO(b).getTime();
+  return Math.round(ms / (1000 * 60 * 60 * 24));
+}
+
+function weekdayName(date) {
+  return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][new Date(date).getDay()];
+}
+
+// 根据 plan_assignments + plan_json 计算指定日期的"计划训练"
+function getPlannedDayForDate(assignment, snapshot, dateStr) {
+  if (!assignment || !snapshot) return null;
+  const weeks = snapshot.plan_json || [];
+  const startDate = assignment.start_date;
+  const dayOffset = diffDays(dateStr, startDate);
+  if (dayOffset < 0 || dayOffset >= assignment.total_weeks * 7) return null;
+
+  const weekIdx = Math.floor(dayOffset / 7);          // 第几周（0-based）
+  const dayInWeek = dayOffset % 7;                    // 周内第几天
+  const week = weeks[weekIdx];
+  if (!week || !Array.isArray(week.days)) return null;
+
+  // 课表默认顺序：周一~周日，但 daysPerWeek 可能是 4/5/6，缺失天为休息
+  // 这里简化处理：把课表按 buildWeekDays 实际生成的天数对齐到周内
+  // buildWeekDays 返回的实际是 daysPerWeek 个训练日（不含休息日）
+  // 为简化，我们把生成的训练日按一周 7 天分布：休息日的 planned 返回 null
+  const daysPerWeek = week.days.length;
+  // 周内对应位置（0=周一）
+  const dayMapFor4 = [0, 1, 3, 6];       // 周一/二/四/日
+  const dayMapFor5 = [0, 1, 2, 3, 6];     // 周一/二/三/四/日
+  const dayMapFor6 = [0, 1, 2, 3, 4, 6]; // 周一/二/三/四/五/日
+  let dayMap = dayMapFor5;
+  if (daysPerWeek === 4) dayMap = dayMapFor4;
+  else if (daysPerWeek === 6) dayMap = dayMapFor6;
+
+  const dayIdx = dayMap.indexOf(dayInWeek);
+  if (dayIdx < 0) {
+    return { weekNo: week.weekNo, phase: week.phase, isRest: true };
+  }
+  const day = week.days[dayIdx];
+  return { weekNo: week.weekNo, phase: week.phase, ...day, isRest: false };
+}
+
+// 获取指定日期范围的训练负荷汇总
+function summarizeLoad(logs) {
+  let totalLoad = 0;
+  let totalDuration = 0;
+  let totalDistance = 0;
+  let completed = 0;
+  let partial = 0;
+  let skipped = 0;
+  logs.forEach((l) => {
+    totalLoad += Number(l.training_load) || 0;
+    totalDuration += Number(l.duration_min) || 0;
+    totalDistance += Number(l.distance_km) || 0;
+    if (l.status === "completed") completed++;
+    else if (l.status === "partial") partial++;
+    else if (l.status === "skipped") skipped++;
+  });
+  return {
+    totalLoad: Math.round(totalLoad * 10) / 10,
+    totalDuration: Math.round(totalDuration),
+    totalDistance: Math.round(totalDistance * 10) / 10,
+    sessions: logs.length,
+    completed,
+    partial,
+    skipped,
+  };
+}
+
 /* ===================== 9. Hash 路由 + 页面渲染器 ===================== */
 
 const ROUTES = {
@@ -1774,13 +2028,32 @@ const ROUTES = {
   "/performance": renderPerformancePage,
   "/analysis": renderAnalysisPage,
   "/plan": renderPlanPage,
+  "/calendar": renderCalendarPage,
+  "/logs": renderLogsPage,
 };
 
-const PROTECTED_ROUTES = ["/profile", "/performance", "/plan"];
+// 需要登录才能访问的路由前缀
+const PROTECTED_ROUTES = ["/profile", "/performance", "/plan", "/calendar", "/logs", "/day"];
 
 function currentRoute() {
   const hash = window.location.hash.replace(/^#/, "");
   return hash || "/";
+}
+
+// 解析带参数的路由（如 /day/2026-08-11 → { name: "/day", param: "2026-08-11" }）
+function matchRoute(path) {
+  // 精确匹配
+  if (ROUTES[path]) return { renderer: ROUTES[path], param: null };
+  // /day/:date 参数化路由
+  if (path.startsWith("/day/")) {
+    const date = path.slice("/day/".length).split("/")[0];
+    return { renderer: renderDayPage, param: date };
+  }
+  return { renderer: renderDashboardPage, param: null };
+}
+
+function isProtectedRoute(path) {
+  return PROTECTED_ROUTES.some((r) => path === r || path.startsWith(r + "/") || path.startsWith(r));
 }
 
 function navigate(path) {
@@ -1831,15 +2104,15 @@ async function router() {
   const app = document.getElementById("app");
   updateNavActive(path);
 
-  const renderer = ROUTES[path] || renderDashboardPage;
+  const { renderer, param } = matchRoute(path);
 
-  if (PROTECTED_ROUTES.includes(path) && !currentUser) {
+  if (isProtectedRoute(path) && !currentUser) {
     app.innerHTML = guardHTML("请先登录", "访问该页面需要登录账户。注册后即可保存运动档案、成绩和分析结果。", "去登录", "#/auth");
     return;
   }
 
   try {
-    await renderer(app, currentUser);
+    await renderer(app, currentUser, param);
   } catch (err) {
     app.innerHTML = `<div class="guard"><h2>出错了</h2><p>${escapeHtml(err.message || String(err))}</p></div>`;
   }
@@ -2563,6 +2836,15 @@ async function renderPlanPage(app, user) {
   const weeks = snap.plan_json || [];
   const label = snap.label || (input.model?.name || "");
 
+  // 查询当前是否已启用此课表
+  let activeAssignment = null;
+  try {
+    activeAssignment = await getActiveAssignment(user.id);
+  } catch (e) { /* 忽略 */ }
+
+  const isActiveThis = activeAssignment && activeAssignment.snapshot_id === snap.id;
+  const totalWeeks = weeks.length || input.weeks || 12;
+
   app.innerHTML = `
     <section class="page">
       <div class="page-head">
@@ -2570,6 +2852,15 @@ async function renderPlanPage(app, user) {
         <h2>周期训练计划</h2>
         <p class="form-note">${escapeHtml(label)} · 生成于 ${escapeHtml(snap.created_at ? new Date(snap.created_at).toLocaleString("zh-CN") : "—")}</p>
       </div>
+
+      <div class="plan-action-bar">
+        ${isActiveThis
+          ? `<div class="plan-status plan-status-active">✓ 已启用 · 开始日期 ${escapeHtml(activeAssignment.start_date)} · 共 ${activeAssignment.total_weeks} 周 · <a href="#/calendar">查看训练日历 →</a></div>`
+          : `<button class="primary-button" id="enablePlanBtn">启用此课表</button>
+             ${activeAssignment ? `<span class="plan-status plan-status-other">当前已启用其他课表，启用新课表会覆盖原课表</span>` : ""}`
+        }
+      </div>
+
       <div id="phaseTimeline" class="timeline"></div>
       <div id="weeklyPlan" class="week-grid"></div>
     </section>
@@ -2580,6 +2871,626 @@ async function renderPlanPage(app, user) {
 
   if (weeks.length) renderPlan(weeks);
   else document.getElementById("weeklyPlan").innerHTML = `<div class="guard"><p>该次分析未保存训练计划，请重新生成。</p></div>`;
+
+  // 绑定「启用此课表」按钮
+  const enableBtn = document.getElementById("enablePlanBtn");
+  if (enableBtn) {
+    enableBtn.addEventListener("click", () => openEnablePlanModal(snap, totalWeeks));
+  }
+}
+
+/* ---- 启用课表弹窗 ---- */
+function openEnablePlanModal(snapshot, totalWeeks) {
+  const today = formatDateISO(new Date());
+  // 默认下周一
+  const nextMonday = addDays(new Date(), (8 - new Date().getDay()) % 7 || 7);
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>启用此训练课表</h3>
+        <button class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">选择这份课表从哪一天开始执行。系统会按 12 周生成训练日历，每天都可以记录完成情况并计算训练负荷。</p>
+        <label>
+          课表开始日期
+          <input type="date" id="planStartDate" value="${formatDateISO(nextMonday)}" min="${today}" />
+        </label>
+        <div class="modal-hint">默认从下周一开规划，你也能改成今天或其他日期。</div>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost-button" id="planCancelBtn">取消</button>
+        <button class="primary-button" id="planConfirmBtn">确认启用</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".modal-close").addEventListener("click", close);
+  overlay.querySelector("#planCancelBtn").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector("#planConfirmBtn").addEventListener("click", async () => {
+    const startDate = document.getElementById("planStartDate").value;
+    if (!startDate) {
+      showToast("请选择开始日期", "error");
+      return;
+    }
+    const btn = overlay.querySelector("#planConfirmBtn");
+    btn.disabled = true;
+    btn.textContent = "启用中…";
+    try {
+      await createAssignment(currentUser.id, snapshot.id, startDate, totalWeeks);
+      showToast("课表已启用，可以开始训练了！", "success");
+      close();
+      navigate("/calendar");
+    } catch (err) {
+      showToast("启用失败：" + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = "确认启用";
+    }
+  });
+}
+
+/* ===================== 11. 训练日历 / 每日日志 / 训练负荷 ===================== */
+
+/* ---- /calendar 训练日历总览页 ---- */
+async function renderCalendarPage(app, user) {
+  app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
+
+  let assignment = null;
+  let snapshot = null;
+  let logs = [];
+  try {
+    assignment = await getActiveAssignment(user.id);
+    if (assignment) {
+      snapshot = await getAnalysisById(assignment.snapshot_id);
+      const startDate = assignment.start_date;
+      const endDate = formatDateISO(addDays(parseDateISO(startDate), assignment.total_weeks * 7 - 1));
+      logs = await listTrainingLogs(user.id, startDate, endDate);
+    }
+  } catch (e) {
+    app.innerHTML = `<div class="guard"><h2>加载失败</h2><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+
+  if (!assignment || !snapshot) {
+    app.innerHTML = `
+      <section class="page">
+        <div class="page-head">
+          <p class="eyebrow">训练日历</p>
+          <h2>还没有启用训练课表</h2>
+        </div>
+        <div class="guard">
+          <p>先生成一次能力分析，然后在「训练计划」页面点「启用此课表」按钮，选择开始日期后即可生成 12 周训练日历。</p>
+          <a class="primary-button" href="#/plan">去训练计划</a>
+        </div>
+      </section>`;
+    return;
+  }
+
+  const weeks = snapshot.plan_json || [];
+  const startDate = parseDateISO(assignment.start_date);
+
+  // 把日志按日期索引
+  const logMap = {};
+  logs.forEach((l) => { logMap[l.log_date] = l; });
+
+  const todayStr = formatDateISO(new Date());
+
+  // 按周分组渲染
+  const weekBlocks = [];
+  for (let w = 0; w < assignment.total_weeks; w++) {
+    const weekStart = addDays(startDate, w * 7);
+    const weekEnd = addDays(weekStart, 6);
+    const weekPlan = weeks[w] || {};
+    const phaseName = weekPlan.phase?.name || "—";
+    const phaseId = weekPlan.phase?.id || "";
+    const emphasis = weekPlan.emphasis || [];
+    const emphasisLabels = (emphasis || []).map((k) => LABELS[k] || k).join(" · ");
+
+    const days = [];
+    for (let d = 0; d < 7; d++) {
+      const date = addDays(weekStart, d);
+      const dateStr = formatDateISO(date);
+      const planned = getPlannedDayForDate(assignment, snapshot, dateStr);
+      const log = logMap[dateStr];
+      const isToday = dateStr === todayStr;
+      const isFuture = dateStr > todayStr;
+      const isPast = dateStr < todayStr;
+
+      let statusClass = "cal-day-future";
+      let statusLabel = "未开始";
+      if (isToday) { statusClass = "cal-day-today"; statusLabel = "今天"; }
+      else if (isPast) {
+        statusClass = "cal-day-past";
+        statusLabel = "已过";
+        if (log) {
+          if (log.status === "completed") { statusClass = "cal-day-done"; statusLabel = "已完成"; }
+          else if (log.status === "partial") { statusClass = "cal-day-partial"; statusLabel = "部分完成"; }
+          else if (log.status === "skipped") { statusClass = "cal-day-skip"; statusLabel = "跳过"; }
+          else { statusClass = "cal-day-missed"; statusLabel = "未记录"; }
+        }
+      }
+
+      const dayTitle = planned?.isRest ? "休息日" : (planned?.title || "—");
+      const dayShort = planned?.isRest ? "休息" : (planned?.title ? planned.title.split(" ")[0] : "—");
+
+      days.push(`
+        <a class="cal-day ${statusClass} ${isToday ? "cal-day-today" : ""}" href="#/day/${dateStr}">
+          <div class="cal-day-head">
+            <span class="cal-wd">${weekdayName(date)}</span>
+            <span class="cal-date">${date.getMonth() + 1}/${date.getDate()}</span>
+          </div>
+          <div class="cal-day-title">${escapeHtml(dayShort)}</div>
+          <div class="cal-day-status">${statusLabel}</div>
+          ${log?.training_load ? `<div class="cal-day-load">${log.training_load} AU</div>` : ""}
+        </a>
+      `);
+    }
+
+    const weekLoad = days
+      .map((_, i) => {
+        const date = addDays(weekStart, i);
+        const l = logMap[formatDateISO(date)];
+        return l?.training_load ? Number(l.training_load) : 0;
+      })
+      .reduce((a, b) => a + b, 0);
+
+    weekBlocks.push(`
+      <article class="cal-week">
+        <header class="cal-week-head">
+          <div class="cal-week-title">
+            第 ${w + 1} 周
+            <span class="cal-week-phase phase-${phaseId}">${escapeHtml(phaseName)}</span>
+          </div>
+          <div class="cal-week-meta">
+            ${formatDateISO(weekStart)} ~ ${formatDateISO(weekEnd)}
+            ${emphasisLabels ? ` · 重点：${escapeHtml(emphasisLabels)}` : ""}
+            ${weekLoad ? ` · 周负荷 ${weekLoad.toFixed(0)} AU` : ""}
+          </div>
+        </header>
+        <div class="cal-week-grid">${days.join("")}</div>
+      </article>
+    `);
+  }
+
+  // 本周 + 4 周负荷汇总
+  const recentLogs = logs.filter((l) => l.log_date <= todayStr);
+  const recentSummary = summarizeLoad(recentLogs);
+
+  app.innerHTML = `
+    <section class="page calendar-page">
+      <div class="page-head">
+        <p class="eyebrow">训练日历</p>
+        <h2>12 周训练日历</h2>
+        <p class="form-note">
+          ${escapeHtml(snapshot.label || "")} · 开始 ${escapeHtml(assignment.start_date)} · 共 ${assignment.total_weeks} 周
+          · <a href="#/logs">查看训练历史 →</a>
+        </p>
+      </div>
+
+      <div class="cal-summary">
+        <div class="cal-summary-item">
+          <span>累计训练负荷</span>
+          <strong>${recentSummary.totalLoad} AU</strong>
+        </div>
+        <div class="cal-summary-item">
+          <span>累计训练时长</span>
+          <strong>${recentSummary.totalDuration} 分钟</strong>
+        </div>
+        <div class="cal-summary-item">
+          <span>累计训练距离</span>
+          <strong>${recentSummary.totalDistance} km</strong>
+        </div>
+        <div class="cal-summary-item">
+          <span>完成 / 部分 / 跳过</span>
+          <strong>${recentSummary.completed} / ${recentSummary.partial} / ${recentSummary.skipped}</strong>
+        </div>
+      </div>
+
+      <div class="cal-weeks">${weekBlocks.join("")}</div>
+    </section>
+  `;
+}
+
+/* ---- /day/:date 每日训练详情页 ---- */
+async function renderDayPage(app, user, dateStr) {
+  if (!dateStr) {
+    app.innerHTML = `<div class="guard"><h2>日期无效</h2><a class="primary-button" href="#/calendar">返回日历</a></div>`;
+    return;
+  }
+
+  app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
+
+  let assignment = null;
+  let snapshot = null;
+  let log = null;
+  try {
+    assignment = await getActiveAssignment(user.id);
+    if (assignment) {
+      snapshot = await getAnalysisById(assignment.snapshot_id);
+      log = await getTrainingLog(user.id, dateStr);
+    }
+  } catch (e) {
+    app.innerHTML = `<div class="guard"><h2>加载失败</h2><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+
+  if (!assignment || !snapshot) {
+    app.innerHTML = `
+      <section class="page">
+        <div class="page-head"><p class="eyebrow">每日训练</p><h2>尚未启用课表</h2></div>
+        <div class="guard">
+          <p>请先到「训练计划」页面启用课表，再来查看每日训练安排。</p>
+          <a class="primary-button" href="#/plan">去训练计划</a>
+        </div>
+      </section>`;
+    return;
+  }
+
+  const planned = getPlannedDayForDate(assignment, snapshot, dateStr);
+  const date = parseDateISO(dateStr);
+  const todayStr = formatDateISO(new Date());
+  const isToday = dateStr === todayStr;
+  const isFuture = dateStr > todayStr;
+
+  // 邻接日期导航
+  const prevDate = formatDateISO(addDays(parseDateISO(dateStr), -1));
+  const nextDate = formatDateISO(addDays(parseDateISO(dateStr), 1));
+  const endDate = formatDateISO(addDays(parseDateISO(assignment.start_date), assignment.total_weeks * 7 - 1));
+  const showPrev = dateStr > assignment.start_date;
+  const showNext = dateStr < endDate;
+
+  const weekNo = planned?.weekNo || "—";
+  const phaseName = planned?.phase?.name || "—";
+
+  const plannedTitle = planned?.isRest ? "休息日" : (planned?.title || "—");
+  const plannedDetail = planned?.isRest
+    ? "今天没有安排训练课，建议做 20-30 分钟轻松活动（散步、瑜伽、拉伸），保持身体活跃但不累积疲劳。"
+    : (planned?.detail || "");
+
+  app.innerHTML = `
+    <section class="page day-page">
+      <div class="day-nav">
+        ${showPrev ? `<a class="ghost-button" href="#/day/${prevDate}">← 前一天</a>` : `<span class="ghost-button disabled">← 前一天</span>`}
+        <a class="ghost-button" href="#/calendar">日历</a>
+        ${showNext ? `<a class="ghost-button" href="#/day/${nextDate}">后一天 →</a>` : `<span class="ghost-button disabled">后一天 →</span>`}
+      </div>
+
+      <div class="page-head">
+        <p class="eyebrow">${escapeHtml(weekdayName(date))} · 第 ${weekNo} 周 · ${escapeHtml(phaseName)}</p>
+        <h2>${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 训练</h2>
+        ${isToday ? `<p class="form-note">今天</p>` : isFuture ? `<p class="form-note">未来日期（可提前规划）</p>` : `<p class="form-note">历史日期</p>`}
+      </div>
+
+      <div class="day-grid">
+        <article class="day-plan panel">
+          <h3>今日计划</h3>
+          <div class="day-plan-title">${escapeHtml(plannedTitle)}</div>
+          ${plannedDetail ? `<p class="day-plan-detail">${escapeHtml(plannedDetail)}</p>` : ""}
+        </article>
+
+        <article class="day-log panel">
+          <h3>训练日志</h3>
+          <form id="logForm" class="log-form">
+            <label>
+              完成状态
+              <select id="logStatus">
+                <option value="pending" ${!log || log.status === "pending" ? "selected" : ""}}>待记录</option>
+                <option value="completed" ${log?.status === "completed" ? "selected" : ""}>已完成</option>
+                <option value="partial" ${log?.status === "partial" ? "selected" : ""}>部分完成</option>
+                <option value="skipped" ${log?.status === "skipped" ? "selected" : ""}>跳过 / 休息</option>
+              </select>
+            </label>
+            <div class="log-grid">
+              <label>
+                训练时长（分钟）
+                <input type="number" id="logDuration" min="0" max="600" value="${log?.duration_min ?? ""}" placeholder="如 60" />
+              </label>
+              <label>
+                距离（km）
+                <input type="number" id="logDistance" min="0" max="200" step="0.1" value="${log?.distance_km ?? ""}" placeholder="如 8.5" />
+              </label>
+              <label>
+                平均心率
+                <input type="number" id="logHr" min="40" max="220" value="${log?.avg_hr ?? ""}" placeholder="如 155" />
+              </label>
+              <label>
+                RPE（主观强度 6-20）
+                <input type="number" id="logRpe" min="6" max="20" step="0.5" value="${log?.rpe ?? ""}" placeholder="如 13" />
+              </label>
+            </div>
+            <label>
+              主观感受
+              <select id="logFeeling">
+                <option value="" ${!log?.feeling ? "selected" : ""}}>—</option>
+                <option value="great" ${log?.feeling === "great" ? "selected" : ""}>状态很好</option>
+                <option value="good" ${log?.feeling === "good" ? "selected" : ""}>感觉不错</option>
+                <option value="normal" ${log?.feeling === "normal" ? "selected" : ""}>一般</option>
+                <option value="tired" ${log?.feeling === "tired" ? "selected" : ""}>有些累</option>
+                <option value="bad" ${log?.feeling === "bad" ? "selected" : ""}>很疲惫</option>
+              </select>
+            </label>
+            <label>
+              备注
+              <textarea id="logNote" rows="3" placeholder="如：小腿略紧，最后 2 组降速">${escapeHtml(log?.note || "")}</textarea>
+            </label>
+            <div class="log-preview" id="logPreview">
+              ${log?.training_load ? `当前训练负荷：<strong>${log.training_load} AU</strong>` : "填写时长和强度后自动计算训练负荷"}
+            </div>
+            <div class="log-actions">
+              <button type="submit" class="primary-button" id="logSubmit">${log ? "更新日志" : "保存日志"}</button>
+              ${log ? `<button type="button" class="ghost-button" id="logDelete">删除</button>` : ""}
+            </div>
+          </form>
+        </article>
+      </div>
+
+      <div id="logFeedback" class="log-feedback"></div>
+    </section>
+  `;
+
+  // 实时计算训练负荷
+  const updatePreview = () => {
+    const dur = Number(document.getElementById("logDuration").value) || 0;
+    const rpe = Number(document.getElementById("logRpe").value) || 0;
+    const hr = Number(document.getElementById("logHr").value) || 0;
+    const age = snapshot.input_json?.age || 20;
+    const load = calcTrainingLoad(dur, rpe, hr, age);
+    const preview = document.getElementById("logPreview");
+    preview.innerHTML = load > 0
+      ? `当前训练负荷：<strong>${load} AU</strong>`
+      : "填写时长和强度后自动计算训练负荷";
+  };
+  ["logDuration", "logRpe", "logHr"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", updatePreview);
+  });
+
+  // 提交日志
+  document.getElementById("logForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("logSubmit");
+    btn.disabled = true;
+    btn.textContent = "保存中…";
+
+    const duration = Number(document.getElementById("logDuration").value) || null;
+    const rpe = Number(document.getElementById("logRpe").value) || null;
+    const hr = Number(document.getElementById("logHr").value) || null;
+    const age = snapshot.input_json?.age || 20;
+    const load = calcTrainingLoad(duration || 0, rpe || 0, hr || 0, age);
+
+    const payload = {
+      planned_title: plannedTitle,
+      planned_detail: plannedDetail,
+      status: document.getElementById("logStatus").value,
+      duration_min: duration,
+      distance_km: Number(document.getElementById("logDistance").value) || null,
+      avg_hr: hr,
+      rpe: rpe,
+      intensity_factor: rpeToIntensityFactor(rpe || 0),
+      training_load: load,
+      feeling: document.getElementById("logFeeling").value || null,
+      note: document.getElementById("logNote").value.trim() || null,
+    };
+
+    try {
+      const saved = await upsertTrainingLog(user.id, dateStr, payload);
+      showToast("日志已保存", "success");
+      renderDayFeedback(saved, planned);
+      btn.disabled = false;
+      btn.textContent = "更新日志";
+      if (!document.getElementById("logDelete")) {
+        // 重新渲染以显示删除按钮
+        renderDayPage(app, user, dateStr);
+      }
+    } catch (err) {
+      showToast("保存失败：" + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = log ? "更新日志" : "保存日志";
+    }
+  });
+
+  // 删除日志
+  const delBtn = document.getElementById("logDelete");
+  if (delBtn) {
+    delBtn.addEventListener("click", async () => {
+      if (!confirm("确定删除这一天的日志？")) return;
+      try {
+        await deleteTrainingLog(user.id, dateStr);
+        showToast("已删除", "success");
+        renderDayPage(app, user, dateStr);
+      } catch (err) {
+        showToast("删除失败：" + (err.message || err), "error");
+      }
+    });
+  }
+
+  // 渲染已有日志的反馈
+  if (log) {
+    renderDayFeedback(log, planned);
+  }
+}
+
+// 渲染训练日志的评估反馈
+function renderDayFeedback(log, planned) {
+  const box = document.getElementById("logFeedback");
+  if (!box) return;
+  if (!log || log.status === "pending") {
+    box.innerHTML = "";
+    return;
+  }
+
+  const feedback = [];
+
+  if (log.status === "skipped") {
+    feedback.push("今天跳过了训练。如果连续 2 天以上跳过，建议调整课表或降低负荷。");
+  } else if (log.status === "completed" || log.status === "partial") {
+    const load = Number(log.training_load) || 0;
+    if (load > 0) {
+      if (load < 30) feedback.push(`训练负荷 ${load} AU，属于轻量训练，适合恢复或保持状态。`);
+      else if (load < 60) feedback.push(`训练负荷 ${load} AU，属于中等训练，保持这个节奏不错。`);
+      else if (load < 100) feedback.push(`训练负荷 ${load} AU，属于较大训练量，注意后续 24 小时的恢复。`);
+      else feedback.push(`训练负荷 ${load} AU，属于高强度训练，建议明天安排轻松或休息日。`);
+    }
+
+    if (log.rpe) {
+      const rpe = Number(log.rpe);
+      if (rpe >= 16 && log.status === "completed") {
+        feedback.push(`RPE ${rpe} 偏高，说明这节课对你来说比较吃力。如果连续几次都偏高，建议降低强度或增加恢复。`);
+      } else if (rpe <= 9 && log.status === "completed") {
+        feedback.push(`RPE ${rpe} 较低，训练较为轻松，可考虑在状态好的时候适度上调强度。`);
+      }
+    }
+
+    if (log.feeling === "bad" || log.feeling === "tired") {
+      feedback.push("主观感受偏疲累，明天可降低负荷或改为轻松跑 + 拉伸。");
+    } else if (log.feeling === "great") {
+      feedback.push("状态很好！可以按计划推进，但不要冲到力竭。");
+    }
+
+    if (log.status === "partial") {
+      feedback.push("部分完成：记录好跳过的部分，下一次同类训练课可以补回。");
+    }
+  }
+
+  box.innerHTML = feedback.length
+    ? `<article class="panel advice-box"><h3>系统评估</h3><ul class="feedback-list">${feedback.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul></article>`
+    : "";
+}
+
+/* ---- /logs 训练日志历史页 ---- */
+async function renderLogsPage(app, user) {
+  app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
+
+  const today = new Date();
+  const todayStr = formatDateISO(today);
+  const sevenDaysAgo = formatDateISO(addDays(today, -6));
+  const twentyEightDaysAgo = formatDateISO(addDays(today, -27));
+
+  let logs7 = [];
+  let logs28 = [];
+  let allLogs = [];
+  try {
+    [logs7, logs28] = await Promise.all([
+      listTrainingLogs(user.id, sevenDaysAgo, todayStr),
+      listTrainingLogs(user.id, twentyEightDaysAgo, todayStr),
+    ]);
+    allLogs = logs28;
+  } catch (e) {
+    app.innerHTML = `<div class="guard"><h2>加载失败</h2><p>${escapeHtml(e.message || String(e))}</p></div>`;
+    return;
+  }
+
+  const summary7 = summarizeLoad(logs7);
+  const summary28 = summarizeLoad(logs28);
+
+  // 7 天每日负荷条形图
+  const daily7 = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = addDays(today, -i);
+    const ds = formatDateISO(d);
+    const l = logs7.find((x) => x.log_date === ds);
+    const load = l?.training_load ? Number(l.training_load) : 0;
+    daily7.push({ date: d, load, status: l?.status || "pending", label: `${d.getMonth() + 1}/${d.getDate()}`, wd: weekdayName(d) });
+  }
+  const maxLoad7 = Math.max(20, ...daily7.map((d) => d.load));
+
+  // 4 周每周负荷趋势
+  const weekly28 = [];
+  for (let w = 3; w >= 0; w--) {
+    const wEnd = addDays(today, -w * 7);
+    const wStart = addDays(wEnd, -6);
+    const wLogs = logs28.filter((l) => l.log_date >= formatDateISO(wStart) && l.log_date <= formatDateISO(wEnd));
+    const s = summarizeLoad(wLogs);
+    weekly28.push({ start: wStart, end: wEnd, ...s });
+  }
+  const maxWeeklyLoad = Math.max(50, ...weekly28.map((w) => w.totalLoad));
+
+  app.innerHTML = `
+    <section class="page logs-page">
+      <div class="page-head">
+        <p class="eyebrow">训练历史</p>
+        <h2>训练负荷与趋势</h2>
+        <p class="form-note">基于每日训练日志，自动汇总 7 天与 28 天训练数据。</p>
+      </div>
+
+      <div class="logs-grid">
+        <article class="panel logs-block">
+          <h3>最近 7 天</h3>
+          <div class="logs-summary">
+            <div><span>训练负荷</span><strong>${summary7.totalLoad} AU</strong></div>
+            <div><span>训练时长</span><strong>${summary7.totalDuration} 分钟</strong></div>
+            <div><span>训练距离</span><strong>${summary7.totalDistance} km</strong></div>
+            <div><span>训练次数</span><strong>${summary7.sessions}</strong></div>
+          </div>
+          <div class="logs-bar-chart">
+            ${daily7.map((d) => `
+              <div class="bar-col">
+                <div class="bar-track">
+                  <div class="bar-fill ${d.status === "completed" ? "bar-done" : d.status === "partial" ? "bar-partial" : d.status === "skipped" ? "bar-skip" : d.load ? "bar-done" : "bar-empty"}"
+                       style="height: ${Math.max(4, (d.load / maxLoad7) * 100)}%"></div>
+                </div>
+                <div class="bar-label">${d.label}</div>
+                <div class="bar-value">${d.load > 0 ? d.load.toFixed(0) : "—"}</div>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+
+        <article class="panel logs-block">
+          <h3>最近 28 天</h3>
+          <div class="logs-summary">
+            <div><span>训练负荷</span><strong>${summary28.totalLoad} AU</strong></div>
+            <div><span>训练时长</span><strong>${summary28.totalDuration} 分钟</strong></div>
+            <div><span>训练距离</span><strong>${summary28.totalDistance} km</strong></div>
+            <div><span>完成率</span><strong>${summary28.sessions ? Math.round((summary28.completed / summary28.sessions) * 100) : 0}%</strong></div>
+          </div>
+          <div class="logs-weekly">
+            ${weekly28.map((w, i) => `
+              <div class="weekly-col">
+                <div class="weekly-bar" style="height: ${Math.max(4, (w.totalLoad / maxWeeklyLoad) * 100)}%"></div>
+                <div class="weekly-label">第 ${i + 1} 周</div>
+                <div class="weekly-value">${w.totalLoad.toFixed(0)} AU</div>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+
+        <article class="panel logs-block logs-list-block">
+          <h3>训练日志记录</h3>
+          ${allLogs.length === 0
+            ? `<p class="form-note">还没有训练日志，去训练日历选择一天开始记录吧。</p>`
+            : `<table class="logs-table">
+                <thead>
+                  <tr><th>日期</th><th>项目</th><th>状态</th><th>负荷</th><th>时长</th><th>RPE</th></tr>
+                </thead>
+                <tbody>
+                  ${allLogs.slice(0, 30).map((l) => `
+                    <tr>
+                      <td><a href="#/day/${l.log_date}">${l.log_date}</a></td>
+                      <td>${escapeHtml(l.planned_title || "—")}</td>
+                      <td class="status-${l.status}">${statusLabel(l.status)}</td>
+                      <td>${l.training_load ? Number(l.training_load).toFixed(0) : "—"}</td>
+                      <td>${l.duration_min || "—"}</td>
+                      <td>${l.rpe || "—"}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>`
+          }
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function statusLabel(status) {
+  return { pending: "待记录", completed: "已完成", partial: "部分", skipped: "跳过" }[status] || status;
 }
 
 /* ===================== 10. 启动引导 ===================== */
