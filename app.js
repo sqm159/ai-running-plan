@@ -1892,6 +1892,527 @@ async function deleteTrainingLog(userId, date) {
   if (error) throw error;
 }
 
+// 检查某外部活动是否已导入（去重）
+async function findLogByExternalId(userId, sourceType, externalId) {
+  if (!externalId) return null;
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("training_logs")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("source_type", sourceType)
+    .eq("external_id", externalId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/* ---- 数据库模块：external_platform_connections（第三方平台连接） ---- */
+async function listPlatformConnections(userId) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("external_platform_connections")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function upsertPlatformConnection(userId, platform, payload) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("external_platform_connections")
+    .upsert(
+      { user_id: userId, platform, ...payload },
+      { onConflict: ["user_id", "platform"] }
+    )
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function deletePlatformConnection(userId, platform) {
+  const client = initSupabase();
+  const { error } = await client
+    .from("external_platform_connections")
+    .delete()
+    .eq("user_id", userId)
+    .eq("platform", platform);
+  if (error) throw error;
+}
+
+/* ===================== 8.5 数据导入/同步模块（高驰 / Strava 文件解析） ===================== */
+/*
+ * 支持的导入格式：
+ *   - TCX  (.tcx)  - 高驰、Strava、Garmin 都支持导出的标准 XML 训练格式
+ *   - GPX  (.gpx)  - 通用轨迹 XML，含时间/海拔/心率扩展
+ *   - CSV  (.csv)  - 高驰官网批量导出、或用户手动整理的简易表格
+ *
+ * 由于 COROS 没有公开开发者 API，本模块采用「文件导出 → 上传解析」的方案。
+ * 同时预留 Strava OAuth 自动拉取的架构位（external_platform_connections 表）。
+ */
+
+/* ---- TCX 解析 ---- */
+function parseTCX(xmlText) {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, "text/xml");
+  const parseErr = xml.querySelector("parsererror");
+  if (parseErr) throw new Error("TCX 文件格式有误，请确认文件未损坏。");
+
+  const activities = xml.getElementsByTagName("Activity");
+  const results = [];
+
+  for (const act of activities) {
+    // 基础信息
+    const sport = act.getAttribute("Sport") || "Running";
+    const idEl = act.getElementsByTagName("Id")[0];
+    const lapEls = act.getElementsByTagName("Lap");
+    const notesEl = act.getElementsByTagName("Notes")[0];
+    const actNameEl = act.getElementsByTagName("Activity")[0]?.parentNode
+      ?.querySelector?.("Name");
+
+    let startTime = idEl?.textContent?.trim();
+    if (!startTime && lapEls[0]) {
+      startTime = lapEls[0].getAttribute("StartTime");
+    }
+
+    // 汇总各 Lap 数据
+    let totalTimeSec = 0;
+    let totalDistanceM = 0;
+    let totalCalories = 0;
+    let maxSpeed = 0;
+    const hrSamples = [];
+    let triggerMethod = null;
+
+    for (const lap of lapEls) {
+      const pick = (tag) => lap.getElementsByTagName(tag)[0]?.textContent?.trim();
+      totalTimeSec += Number(pick("TotalTimeSeconds")) || 0;
+      totalDistanceM += Number(pick("DistanceMeters")) || 0;
+      totalCalories += Number(pick("Calories")) || 0;
+      const ms = Number(pick("MaximumSpeed"));
+      if (ms > maxSpeed) maxSpeed = ms;
+      triggerMethod = pick("TriggerMethod");
+
+      // 从 Trackpoint 采集平均心率
+      const tpEls = lap.getElementsByTagName("Trackpoint");
+      for (const tp of tpEls) {
+        const hrEl = tp.getElementsByTagName("HeartRateBpm")[0]
+          ?.getElementsByTagName("Value")[0];
+        const hr = Number(hrEl?.textContent);
+        if (hr > 30 && hr < 230) hrSamples.push(hr);
+      }
+    }
+
+    const avgHr = hrSamples.length
+      ? Math.round(hrSamples.reduce((s, v) => s + v, 0) / hrSamples.length)
+      : null;
+    const maxHr = hrSamples.length ? Math.max(...hrSamples) : null;
+
+    const durationMin = totalTimeSec ? Math.round((totalTimeSec / 60) * 10) / 10 : null;
+    const distanceKm = totalDistanceM ? Math.round((totalDistanceM / 1000) * 100) / 100 : null;
+    const avgPace = distanceKm && durationMin ? Math.round(durationMin / distanceKm * 10) / 10 : null; // min/km
+
+    // 估算 RPE（根据平均心率近似）
+    let rpe = null;
+    if (avgHr) {
+      if (avgHr < 130) rpe = 6;
+      else if (avgHr < 145) rpe = 8;
+      else if (avgHr < 160) rpe = 11;
+      else if (avgHr < 172) rpe = 13;
+      else if (avgHr < 182) rpe = 15;
+      else rpe = 17;
+    }
+
+    // 标准化活动标题
+    const title = actNameEl?.textContent?.trim()
+      || notesEl?.textContent?.trim()
+      || `${sport === "Running" ? "跑步" : sport}训练`;
+
+    // 日期（UTC 转本地 YYYY-MM-DD）
+    const startDate = startTime ? parseISODateToLocal(startTime) : null;
+
+    // 生成去重 external_id（基于开始时间+距离+时长的哈希）
+    const rawExternal = `${startTime || ""}-${totalDistanceM}-${totalTimeSec}`;
+    const externalId = simpleHash(rawExternal);
+
+    results.push({
+      source_type: "file_tcx",
+      external_id: externalId,
+      log_date: startDate,
+      planned_title: title,
+      planned_detail: sport ? `运动类型：${sport}` : "",
+      status: "completed",
+      duration_min: durationMin,
+      distance_km: distanceKm,
+      avg_hr: avgHr,
+      rpe,
+      feeling: null,
+      note: notesEl?.textContent?.trim() || null,
+      // 附加原始数据备份
+      external_raw_json: {
+        format: "tcx",
+        sport,
+        startTime,
+        totalTimeSec,
+        totalDistanceM,
+        totalCalories,
+        maxSpeed,
+        maxHr,
+        avgPace,
+        triggerMethod,
+      },
+    });
+  }
+
+  return results;
+}
+
+/* ---- GPX 解析 ---- */
+function parseGPX(xmlText) {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(xmlText, "text/xml");
+  const parseErr = xml.querySelector("parsererror");
+  if (parseErr) throw new Error("GPX 文件格式有误，请确认文件未损坏。");
+
+  const trks = xml.getElementsByTagName("trk");
+  const results = [];
+
+  for (const trk of trks) {
+    const nameEl = trk.getElementsByTagName("name")[0];
+    const descEl = trk.getElementsByTagName("desc")[0];
+    const typeEl = trk.getElementsByTagName("type")[0];
+    const segEls = trk.getElementsByTagName("trkseg");
+
+    // 遍历所有点，汇总
+    const pts = trk.getElementsByTagName("trkpt");
+    let prevTime = null;
+    let prevLat = null;
+    let prevLon = null;
+    let totalDistanceM = 0;
+    let totalTimeSec = 0;
+    let startTime = null;
+    const hrSamples = [];
+    const eleSamples = [];
+
+    for (const pt of pts) {
+      const lat = Number(pt.getAttribute("lat"));
+      const lon = Number(pt.getAttribute("lon"));
+      const timeEl = pt.getElementsByTagName("time")[0];
+      const eleEl = pt.getElementsByTagName("ele")[0];
+      // GPX 扩展心率 (Garmin/Strava 扩展: <gpxtpx:hr> 或 <hr>)
+      let hrText = null;
+      const extEls = pt.getElementsByTagName("extensions");
+      for (const ext of extEls) {
+        const all = ext.getElementsByTagName("*");
+        for (const n of all) {
+          if (n.localName === "hr" || n.tagName?.toLowerCase().includes("hr")) {
+            hrText = n.textContent?.trim();
+            break;
+          }
+        }
+        if (hrText) break;
+      }
+      // 尝试直接找 hr 标签
+      if (!hrText) {
+        const directHr = pt.getElementsByTagName("hr")[0]?.textContent?.trim();
+        if (directHr) hrText = directHr;
+      }
+
+      const hr = Number(hrText);
+      if (hr > 30 && hr < 230) hrSamples.push(hr);
+      const ele = Number(eleEl?.textContent);
+      if (Number.isFinite(ele)) eleSamples.push(ele);
+
+      const timeStr = timeEl?.textContent?.trim();
+      const curTime = timeStr ? new Date(timeStr) : null;
+
+      if (curTime && !startTime) startTime = curTime;
+      if (prevTime && curTime) {
+        totalTimeSec += (curTime - prevTime) / 1000;
+      }
+      if (prevLat != null && Number.isFinite(lat)) {
+        totalDistanceM += haversineMeters(prevLat, prevLon, lat, lon);
+      }
+      prevTime = curTime;
+      prevLat = lat;
+      prevLon = lon;
+    }
+
+    const avgHr = hrSamples.length
+      ? Math.round(hrSamples.reduce((s, v) => s + v, 0) / hrSamples.length)
+      : null;
+    const maxHr = hrSamples.length ? Math.max(...hrSamples) : null;
+    const durationMin = totalTimeSec ? Math.round((totalTimeSec / 60) * 10) / 10 : null;
+    const distanceKm = totalDistanceM ? Math.round((totalDistanceM / 1000) * 100) / 100 : null;
+
+    let rpe = null;
+    if (avgHr) {
+      if (avgHr < 130) rpe = 6;
+      else if (avgHr < 145) rpe = 8;
+      else if (avgHr < 160) rpe = 11;
+      else if (avgHr < 172) rpe = 13;
+      else if (avgHr < 182) rpe = 15;
+      else rpe = 17;
+    }
+
+    const title = nameEl?.textContent?.trim() || typeEl?.textContent?.trim() || "GPX 跑步活动";
+    const startTimeStr = startTime ? startTime.toISOString() : null;
+    const startDate = startTime ? formatDateISO(startTime) : null;
+
+    const rawExternal = `${startTimeStr || ""}-${totalDistanceM.toFixed(0)}-${totalTimeSec.toFixed(0)}`;
+    const externalId = simpleHash(rawExternal);
+
+    results.push({
+      source_type: "file_gpx",
+      external_id: externalId,
+      log_date: startDate,
+      planned_title: title,
+      planned_detail: typeEl?.textContent ? `运动类型：${typeEl.textContent}` : "",
+      status: "completed",
+      duration_min: durationMin,
+      distance_km: distanceKm,
+      avg_hr: avgHr,
+      rpe,
+      feeling: null,
+      note: descEl?.textContent?.trim() || null,
+      external_raw_json: {
+        format: "gpx",
+        startTime: startTimeStr,
+        totalTimeSec: Math.round(totalTimeSec),
+        totalDistanceM: Math.round(totalDistanceM),
+        maxHr,
+        elevationMin: eleSamples.length ? Math.min(...eleSamples) : null,
+        elevationMax: eleSamples.length ? Math.max(...eleSamples) : null,
+      },
+    });
+  }
+
+  return results;
+}
+
+/* ---- CSV 解析 ----
+ * 支持两种模式：
+ *   A) 高驰官网导出格式（含表头：日期,活动名称,时长,距离,平均心率,配速,...）
+ *   B) 极简通用格式（含表头：date,title,duration_min,distance_km,avg_hr,rpe,note）
+ */
+function parseCSV(text) {
+  const rows = parseCSVLines(text);
+  if (!rows.length) throw new Error("CSV 为空或解析失败。");
+  const header = rows[0].map((c) => c.trim());
+  const dataRows = rows.slice(1).filter((r) => r.some((c) => c && c.trim()));
+
+  // 自动判断列映射
+  const col = (names) => {
+    for (const n of names) {
+      const idx = header.findIndex((h) => h.toLowerCase() === n.toLowerCase());
+      if (idx >= 0) return idx;
+    }
+    const partial = header.findIndex((h) =>
+      names.some((n) => h.toLowerCase().includes(n.toLowerCase()))
+    );
+    return partial;
+  };
+
+  const iDate = col(["日期", "date", "log_date", "活动日期", "start_time", "开始时间"]);
+  const iTitle = col(["活动名称", "title", "活动类型", "name", "planned_title"]);
+  const iDuration = col(["时长", "duration", "duration_min", "活动时长", "moving_time"]);
+  const iDistance = col(["距离", "distance", "distance_km", "公里数"]);
+  const iHr = col(["平均心率", "avg_hr", "心率", "heartrate"]);
+  const iRpe = col(["rpe", "RPE", "主观强度"]);
+  const iNote = col(["备注", "note", "description", "描述"]);
+  const iType = col(["类型", "sport", "type"]);
+
+  const results = [];
+  for (let r = 0; r < dataRows.length; r++) {
+    const row = dataRows[r];
+    const rawDate = row[iDate] || "";
+    const dateStr = normalizeDate(rawDate);
+    if (!dateStr) continue;
+
+    const rawDuration = row[iDuration] || "";
+    let durationMin = parseDurationString(rawDuration);
+
+    const rawDist = row[iDistance] || "";
+    let distanceKm = Number(String(rawDist).replace(/[^\d.]/g, "")) || null;
+    // 如果单位是米，自动换算
+    if (distanceKm && distanceKm > 1000) distanceKm = distanceKm / 1000;
+
+    const avgHr = Number(row[iHr]) || null;
+    const rpe = Number(row[iRpe]) || null;
+    const title = (row[iTitle] || row[iType] || "CSV 导入活动").trim();
+    const note = row[iNote]?.trim() || null;
+
+    const rawExternal = `${dateStr}-${distanceKm || ""}-${durationMin || ""}-${r}`;
+    const externalId = simpleHash(rawExternal);
+
+    results.push({
+      source_type: "file_csv",
+      external_id: externalId,
+      log_date: dateStr,
+      planned_title: title,
+      planned_detail: row[iType] ? `运动类型：${row[iType].trim()}` : "",
+      status: "completed",
+      duration_min: durationMin,
+      distance_km: distanceKm,
+      avg_hr: avgHr > 30 && avgHr < 230 ? avgHr : null,
+      rpe: rpe >= 6 && rpe <= 20 ? rpe : null,
+      feeling: null,
+      note,
+      external_raw_json: { format: "csv", rowIndex: r, rawRow: row },
+    });
+  }
+  return results;
+}
+
+/* ---- 导入辅助工具 ---- */
+function parseCSVLines(text) {
+  const lines = String(text || "").replace(/\r/g, "").split("\n");
+  const out = [];
+  let cur = [];
+  let inQ = false;
+  let buf = "";
+  for (const line of lines) {
+    if (!inQ && !line.trim() && !cur.length) continue;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQ && line[i + 1] === '"') { buf += '"'; i++; }
+        else inQ = !inQ;
+      } else if (ch === "," && !inQ) {
+        cur.push(buf); buf = "";
+      } else {
+        buf += ch;
+      }
+    }
+    if (inQ) {
+      buf += "\n";
+    } else {
+      cur.push(buf); buf = "";
+      out.push(cur); cur = [];
+    }
+  }
+  if (buf || cur.length) { cur.push(buf); out.push(cur); }
+  return out;
+}
+
+// 把 ISO 字符串（UTC）转换到本地时区的 YYYY-MM-DD
+function parseISODateToLocal(isoStr) {
+  try {
+    const d = new Date(isoStr);
+    if (Number.isNaN(d.getTime())) return null;
+    return formatDateISO(d);
+  } catch (_) { return null; }
+}
+
+function normalizeDate(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  // ISO
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  // YYYYMMDD
+  m = s.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // 中文 2024年1月2日
+  m = s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日?/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  // Excel 日期数字：简单兜底用 ISO 解析
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return formatDateISO(d);
+  return null;
+}
+
+// 解析时长字符串 "1:23:45" / "45:30" / "32 分钟" / "1200" (秒) 成分钟
+function parseDurationString(s) {
+  if (s == null || s === "") return null;
+  const str = String(s).trim();
+  if (str.includes(":")) {
+    const parts = str.split(":").map(Number);
+    if (parts.some((p) => !Number.isFinite(p))) return null;
+    if (parts.length === 3) return parts[0] * 60 + parts[1] + parts[2] / 60;
+    if (parts.length === 2) return parts[0] + parts[1] / 60;
+    return null;
+  }
+  // "32 分钟" / "32min" / "1500秒"
+  const mMin = str.match(/([\d.]+)\s*(分钟|分|min|minute)/i);
+  if (mMin) return Number(mMin[1]);
+  const mSec = str.match(/([\d.]+)\s*(秒|s|sec)/i);
+  if (mSec) return Number(mSec[1]) / 60;
+  const mHr = str.match(/([\d.]+)\s*(小时|h|hr|hour)/i);
+  if (mHr) return Number(mHr[1]) * 60;
+  // 纯数字：<= 500 按分钟，否则按秒（兼容某些系统导出秒数）
+  const n = Number(str);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n <= 500 ? n : n / 60;
+}
+
+// 经纬度近似距离（Haversine，米）
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const toRad = (x) => (x * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// 简单稳定哈希（32bit FNV-1a，hex 字符串，用于去重 ID）
+function simpleHash(str) {
+  let h = 0x811c9dc5;
+  const s = String(str || "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return "h" + h.toString(16).padStart(8, "0");
+}
+
+/* ---- 格式探测 + 统一入口 ---- */
+function detectAndParseFile(filename, content) {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".tcx")) {
+    return { format: "tcx", activities: parseTCX(content) };
+  }
+  if (lower.endsWith(".gpx")) {
+    return { format: "gpx", activities: parseGPX(content) };
+  }
+  if (lower.endsWith(".csv")) {
+    return { format: "csv", activities: parseCSV(content) };
+  }
+  // 兜底：按文件内容探测
+  const trimmed = content.trim();
+  if (trimmed.startsWith("<?xml") || trimmed.startsWith("<TrainingCenterDatabase")) {
+    return { format: "tcx", activities: parseTCX(content) };
+  }
+  if (trimmed.startsWith("<gpx")) {
+    return { format: "gpx", activities: parseGPX(content) };
+  }
+  throw new Error(`不支持的文件格式：${filename}。支持 .tcx / .gpx / .csv`);
+}
+
+/* ---- 导入流程：解析 → 补齐训练负荷 → 去重 → 批量写入 ---- */
+function finalizeActivityImport(activity, age) {
+  // 计算训练负荷
+  const load = calcTrainingLoad(
+    activity.duration_min,
+    activity.rpe,
+    activity.avg_hr,
+    age
+  );
+  const intensityFactor = activity.duration_min && load
+    ? Math.round((load / activity.duration_min) * 100) / 100
+    : rpeToIntensityFactor(activity.rpe);
+  return {
+    ...activity,
+    intensity_factor: intensityFactor || null,
+    training_load: load || null,
+  };
+}
+
 /* ---- 训练负荷计算 ---- */
 // 训练负荷 = 训练时长(分钟) × 强度系数
 // 强度系数基于 RPE 推算（若提供心率则综合心率区间校准）
@@ -2030,10 +2551,11 @@ const ROUTES = {
   "/plan": renderPlanPage,
   "/calendar": renderCalendarPage,
   "/logs": renderLogsPage,
+  "/sync": renderSyncPage,
 };
 
 // 需要登录才能访问的路由前缀
-const PROTECTED_ROUTES = ["/profile", "/performance", "/plan", "/calendar", "/logs", "/day"];
+const PROTECTED_ROUTES = ["/profile", "/performance", "/plan", "/calendar", "/logs", "/day", "/sync"];
 
 function currentRoute() {
   const hash = window.location.hash.replace(/^#/, "");
@@ -3609,6 +4131,497 @@ async function renderLogsPage(app, user) {
 
 function statusLabel(status) {
   return { pending: "待记录", completed: "已完成", partial: "部分", skipped: "跳过" }[status] || status;
+}
+
+function sourceTypeLabel(type) {
+  return {
+    manual: "手动填写",
+    coros: "高驰 COROS",
+    strava: "Strava",
+    file_tcx: "TCX 导入",
+    file_gpx: "GPX 导入",
+    file_csv: "CSV 导入",
+  }[type] || type || "未知";
+}
+
+function platformLabel(p) {
+  return {
+    coros: "高驰 COROS",
+    strava: "Strava",
+    garmin: "佳明 Garmin",
+  }[p] || p;
+}
+
+function platformStatusLabel(s) {
+  return {
+    pending: "未连接",
+    connected: "已连接",
+    expired: "已过期",
+    revoked: "已撤销",
+  }[s] || s;
+}
+
+function platformStatusBadge(s) {
+  const map = {
+    pending: "badge-balanced",
+    connected: "badge-endurance",
+    expired: "badge-speed",
+    revoked: "badge-speed",
+  };
+  return map[s] || "badge-balanced";
+}
+
+/* ===================== 9.5 数据同步页面 ===================== */
+async function renderSyncPage(app, user) {
+  const appRoot = document.getElementById("app");
+  const userId = user.id;
+
+  // 加载平台连接、用户年龄、最近日志（数据源分布）
+  const [connections, profile, recentLogs] = await Promise.all([
+    listPlatformConnections(userId).catch((e) => []),
+    getProfile(userId).catch((e) => null),
+    listTrainingLogs(userId).catch((e) => []),
+  ]);
+  const age = profile?.age || 25;
+
+  // 统计各来源导入量
+  const sourceStats = {};
+  recentLogs.forEach((l) => {
+    const s = l.source_type || "manual";
+    sourceStats[s] = (sourceStats[s] || 0) + 1;
+  });
+
+  appRoot.innerHTML = `
+    <section class="page sync-page">
+      <header class="page-head">
+        <h2>数据同步 / 高驰导入</h2>
+        <p class="page-sub">从高驰（COROS）、Strava 等运动平台把训练数据自动导入到训练日历和日志。</p>
+      </header>
+
+      <!-- 提示条 -->
+      <div class="sync-info-card">
+        <div class="sync-info-icon">💡</div>
+        <div class="sync-info-body">
+          <strong>高驰（COROS）用户的推荐流程</strong>
+          <ol class="sync-steps">
+            <li>打开 <strong>高驰 APP</strong> → 进入活动详情页 → 右上角「…」→「导出」→ 选择 <strong>TCX</strong> 格式（推荐）。</li>
+            <li>或打开 <strong>高驰官网 mycoros.com</strong> → 活动详情 → 「导出 TCX / GPX」。</li>
+            <li>在下方 <strong>「批量上传文件」</strong> 区域把导出的 .tcx / .gpx / .csv 文件拖进来，或点击选择。</li>
+            <li>系统会自动解析、去重、换算训练负荷，并写入你的训练日志。同一活动不会被重复导入。</li>
+          </ol>
+          <p class="muted"><strong>进阶：</strong>如果已经把高驰数据同步到 Strava，未来可以部署简单后端实现 Strava OAuth 自动拉取（本系统已预留连接表架构）。</p>
+        </div>
+      </div>
+
+      <!-- 平台连接卡片（预留 Strava OAuth 接口） -->
+      <div class="card-grid">
+        <article class="card platform-card">
+          <div class="platform-card-head">
+            <div class="platform-brand coros-brand">
+              <div class="platform-logo">C</div>
+              <div>
+                <h3>高驰 COROS</h3>
+                <p class="muted">推荐：导出 TCX 文件后上传导入</p>
+              </div>
+            </div>
+            <span class="badge badge-endurance">文件导入</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>导出位置：</strong></p>
+            <ul class="muted small">
+              <li>高驰 APP：活动详情 → 右上角「…」→ 导出 → TCX 格式</li>
+              <li>高驰官网：活动详情 → 「导出 TCX / GPX」按钮</li>
+            </ul>
+            <p><strong>支持格式：</strong><code>.tcx</code>（数据最全，包含心率/圈数/配速）、<code>.gpx</code>、<code>.csv</code></p>
+          </div>
+          <div class="platform-card-foot">
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+          </div>
+        </article>
+
+        <article class="card platform-card">
+          <div class="platform-card-head">
+            <div class="platform-brand strava-brand">
+              <div class="platform-logo">S</div>
+              <div>
+                <h3>Strava</h3>
+                <p class="muted">高驰同步 → Strava → 自动拉取</p>
+              </div>
+            </div>
+            <span class="badge badge-balanced">需要后端支持</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>流程：</strong></p>
+            <ul class="muted small">
+              <li>高驰 APP → 设置 → 第三方连接 → 绑定 Strava</li>
+              <li>每次运动后高驰会自动同步到 Strava</li>
+              <li>需要部署 OAuth 回调后端（Node/Cloudflare Workers）才能自动拉取</li>
+            </ul>
+            <p class="muted small"><strong>替代方案：</strong>Strava 活动详情 → 菜单 → 导出 TCX → 按高驰方式上传</p>
+          </div>
+          <div class="platform-card-foot">
+            <button class="ghost-button" id="stravaHelpBtn">查看 Strava 对接说明</button>
+          </div>
+        </article>
+      </div>
+
+      <!-- 当前平台连接状态 -->
+      <section class="section">
+        <h3 class="section-title">平台连接状态</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>平台</th><th>状态</th><th>外部 ID</th><th>最后同步</th><th>创建时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${connections.length ? connections.map((c) => `
+                <tr>
+                  <td><strong>${escapeHtml(platformLabel(c.platform))}</strong></td>
+                  <td><span class="badge ${escapeHtml(platformStatusBadge(c.status))}">${escapeHtml(platformStatusLabel(c.status))}</span></td>
+                  <td>${escapeHtml(c.external_user_id || "—")}</td>
+                  <td>${escapeHtml(c.last_sync_at ? new Date(c.last_sync_at).toLocaleString() : "—")}</td>
+                  <td>${escapeHtml(new Date(c.created_at).toLocaleDateString())}</td>
+                  <td>
+                    <button class="danger-btn small" data-disconnect="${escapeHtml(c.platform)}">断开</button>
+                  </td>
+                </tr>
+              `).join("") : `
+                <tr><td colspan="6" class="empty-state">暂无平台连接，先从下方上传文件开始吧。</td></tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 上传区域 -->
+      <section class="section" id="file-drop-area">
+        <h3 class="section-title">批量上传文件（高驰导出 TCX/GPX/CSV）</h3>
+
+        <div class="upload-zone" id="uploadZone">
+          <div class="upload-zone-icon">📤</div>
+          <h4>拖拽文件到这里，或点击选择文件</h4>
+          <p class="muted">支持 <strong>.tcx</strong>、<strong>.gpx</strong>、<strong>.csv</strong>，可多选，系统会按日期自动合并导入并去重。</p>
+          <input type="file" id="fileInput" multiple accept=".tcx,.gpx,.csv,application/xml,text/csv" hidden />
+          <button class="primary-button" id="pickFilesBtn">选择文件</button>
+        </div>
+
+        <!-- 预览区域 -->
+        <div id="previewArea" class="preview-area" style="display:none;">
+          <div class="preview-head">
+            <h4>导入预览</h4>
+            <div>
+              <button class="ghost-button" id="clearPreviewBtn">清空</button>
+              <button class="primary-button" id="confirmImportBtn">确认导入到我的训练日志</button>
+            </div>
+          </div>
+          <div class="preview-summary" id="previewSummary"></div>
+          <div class="table-wrap">
+            <table class="data-table preview-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="selectAllChk" checked /></th>
+                  <th>日期</th><th>活动</th><th>时长</th><th>距离</th>
+                  <th>平均心率</th><th>RPE</th><th>训练负荷</th>
+                  <th>来源</th><th>状态</th>
+                </tr>
+              </thead>
+              <tbody id="previewTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 导入结果 -->
+        <div id="importResult" style="display:none;"></div>
+      </section>
+
+      <!-- 导入统计 -->
+      <section class="section">
+        <h3 class="section-title">已导入数据分布</h3>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-num">${recentLogs.length}</div>
+            <div class="stat-label">条训练日志总计</div>
+          </div>
+          ${Object.entries(sourceStats).map(([type, n]) => `
+            <div class="stat-card stat-${type === "manual" ? "manual" : "import"}">
+              <div class="stat-num">${n}</div>
+              <div class="stat-label">${escapeHtml(sourceTypeLabel(type))}</div>
+            </div>
+          `).join("")}
+        </div>
+      </section>
+
+    </section>
+  `;
+
+  // 状态：待导入活动列表
+  let pendingActivities = []; // [{ ...finalizedActivity, file, format, __skip: false, __dup: false, __dupLogDate: null }]
+
+  // 绑定：选择文件
+  const fileInput = document.getElementById("fileInput");
+  const pickBtn = document.getElementById("pickFilesBtn");
+  const uploadZone = document.getElementById("uploadZone");
+
+  pickBtn?.addEventListener("click", () => fileInput?.click());
+  uploadZone?.addEventListener("click", (e) => {
+    if (e.target.tagName !== "BUTTON") fileInput?.click();
+  });
+  fileInput?.addEventListener("change", (e) => handleFiles(e.target.files));
+
+  // 拖拽
+  ["dragenter", "dragover"].forEach((evt) => {
+    uploadZone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      uploadZone.classList.add("active");
+    });
+  });
+  ["dragleave", "drop"].forEach((evt) => {
+    uploadZone?.addEventListener(evt, (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove("active");
+    });
+  });
+  uploadZone?.addEventListener("drop", (e) => {
+    if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files);
+  });
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    showToast(`正在解析 ${files.length} 个文件…`);
+
+    const newItems = [];
+    for (const f of files) {
+      try {
+        const content = await f.text();
+        const { format, activities } = detectAndParseFile(f.name, content);
+        for (const act of activities) {
+          const finalized = finalizeActivityImport(act, age);
+          // 去重检查：external_id
+          let dupLog = null;
+          if (finalized.external_id) {
+            dupLog = await findLogByExternalId(userId, finalized.source_type, finalized.external_id);
+          }
+          // 同日也做提示
+          let dupDateLog = null;
+          if (!dupLog && finalized.log_date) {
+            dupDateLog = recentLogs.find((l) => l.log_date === finalized.log_date);
+          }
+          newItems.push({
+            ...finalized,
+            __file: f.name,
+            __format: format,
+            __selected: !dupLog,
+            __dup: !!dupLog,
+            __dupByDate: !!dupDateLog && !dupLog,
+            __dupLogDate: dupLog?.log_date || dupDateLog?.log_date || null,
+          });
+        }
+      } catch (err) {
+        showToast(`文件 ${f.name} 解析失败：${err.message || err}`, "error");
+      }
+    }
+
+    // 追加并展示
+    pendingActivities = [...pendingActivities, ...newItems];
+    renderPreview();
+    showToast(`已解析 ${newItems.length} 条活动`);
+  }
+
+  function renderPreview() {
+    const preview = document.getElementById("previewArea");
+    const tbody = document.getElementById("previewTbody");
+    const summary = document.getElementById("previewSummary");
+    if (!preview || !tbody) return;
+
+    if (!pendingActivities.length) {
+      preview.style.display = "none";
+      return;
+    }
+    preview.style.display = "block";
+
+    const total = pendingActivities.length;
+    const dups = pendingActivities.filter((a) => a.__dup).length;
+    const selected = pendingActivities.filter((a) => a.__selected && !a.__dup).length;
+    const totalLoad = pendingActivities
+      .filter((a) => a.__selected && !a.__dup)
+      .reduce((s, a) => s + (Number(a.training_load) || 0), 0);
+    const totalDist = pendingActivities
+      .filter((a) => a.__selected && !a.__dup)
+      .reduce((s, a) => s + (Number(a.distance_km) || 0), 0);
+    const totalDur = pendingActivities
+      .filter((a) => a.__selected && !a.__dup)
+      .reduce((s, a) => s + (Number(a.duration_min) || 0), 0);
+
+    summary.innerHTML = `
+      <div class="summary-pills">
+        <span class="pill pill-info">解析 <strong>${total}</strong> 条</span>
+        <span class="pill pill-warn">已导入过（自动跳过）<strong>${dups}</strong> 条</span>
+        <span class="pill pill-ok">待导入 <strong>${selected}</strong> 条</span>
+        <span class="pill pill-info">总距离 <strong>${totalDist.toFixed(1)} km</strong></span>
+        <span class="pill pill-info">总时长 <strong>${Math.round(totalDur)} 分钟</strong></span>
+        <span class="pill pill-info">训练负荷 <strong>${totalLoad.toFixed(0)}</strong></span>
+      </div>
+    `;
+
+    tbody.innerHTML = pendingActivities.map((a, i) => {
+      const disabled = a.__dup;
+      const check = a.__selected && !a.__dup;
+      return `
+        <tr class="${a.__dup ? "row-dup" : a.__dupByDate ? "row-warn" : ""}">
+          <td>
+            <input type="checkbox" class="row-chk" data-idx="${i}"
+              ${disabled ? "disabled" : ""} ${check ? "checked" : ""} />
+          </td>
+          <td>${escapeHtml(a.log_date || "—")}</td>
+          <td><strong>${escapeHtml(a.planned_title || "未命名活动")}</strong>
+            ${a.planned_detail ? `<div class="muted small">${escapeHtml(a.planned_detail)}</div>` : ""}
+            ${a.note ? `<div class="muted small">备注：${escapeHtml(a.note)}</div>` : ""}
+          </td>
+          <td>${a.duration_min != null ? `${a.duration_min.toFixed(1)} 分` : "—"}</td>
+          <td>${a.distance_km != null ? `${a.distance_km.toFixed(2)} km` : "—"}</td>
+          <td>${a.avg_hr || "—"}</td>
+          <td>${a.rpe || "—"}</td>
+          <td><strong>${a.training_load != null ? a.training_load.toFixed(1) : "—"}</strong></td>
+          <td><span class="badge badge-balanced">${escapeHtml(sourceTypeLabel(a.source_type))}</span>
+            <div class="muted small">文件：${escapeHtml(a.__file || "")}</div>
+          </td>
+          <td>
+            ${a.__dup ? `<span class="tag tag-dup">已导入过</span><div class="muted small">同活动 ID</div>`
+              : a.__dupByDate ? `<span class="tag tag-warn">该日已有日志</span><div class="muted small">${escapeHtml(a.__dupLogDate || "")}</div>`
+              : `<span class="tag tag-ok">待导入</span>`}
+          </td>
+        </tr>
+      `;
+    }).join("");
+
+    // 绑定复选框
+    const selectAll = document.getElementById("selectAllChk");
+    const importable = pendingActivities.filter((a) => !a.__dup);
+    selectAll.checked = importable.length > 0 && importable.every((a) => a.__selected);
+    selectAll.onchange = () => {
+      pendingActivities.forEach((a) => { if (!a.__dup) a.__selected = selectAll.checked; });
+      renderPreview();
+    };
+    document.querySelectorAll(".row-chk").forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const i = Number(cb.getAttribute("data-idx"));
+        pendingActivities[i].__selected = cb.checked;
+        renderPreview();
+      });
+    });
+  }
+
+  document.getElementById("clearPreviewBtn")?.addEventListener("click", () => {
+    pendingActivities = [];
+    renderPreview();
+    if (fileInput) fileInput.value = "";
+  });
+
+  document.getElementById("confirmImportBtn")?.addEventListener("click", async () => {
+    const toImport = pendingActivities.filter((a) => a.__selected && !a.__dup);
+    if (!toImport.length) {
+      showToast("没有可导入的活动", "error");
+      return;
+    }
+    const btn = document.getElementById("confirmImportBtn");
+    btn.disabled = true;
+    btn.textContent = `导入中 0/${toImport.length}…`;
+
+    let done = 0, failed = 0, skipped = 0;
+    const errors = [];
+
+    for (const a of toImport) {
+      try {
+        if (!a.log_date) { skipped++; continue; }
+        // 构造入库 payload（去掉 __ 前缀临时字段）
+        const payload = {};
+        Object.entries(a).forEach(([k, v]) => {
+          if (!k.startsWith("__")) payload[k] = v;
+        });
+        await upsertTrainingLog(userId, a.log_date, payload);
+        done++;
+      } catch (e) {
+        failed++;
+        errors.push({ date: a.log_date, title: a.planned_title, err: e.message || String(e) });
+      }
+      btn.textContent = `导入中 ${done + failed + skipped}/${toImport.length}…`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = "确认导入到我的训练日志";
+
+    // 展示结果
+    const result = document.getElementById("importResult");
+    result.style.display = "block";
+    result.innerHTML = `
+      <div class="import-result-card ${failed ? "has-error" : "ok"}">
+        <h4>🎉 导入完成</h4>
+        <div class="summary-pills">
+          <span class="pill pill-ok">成功 <strong>${done}</strong></span>
+          <span class="pill pill-info">跳过（无日期）<strong>${skipped}</strong></span>
+          ${failed ? `<span class="pill pill-warn">失败 <strong>${failed}</strong></span>` : ""}
+        </div>
+        ${errors.length ? `
+          <details>
+            <summary>查看失败明细</summary>
+            <ul class="error-list">
+              ${errors.map((e) => `
+                <li><strong>${escapeHtml(e.date || "—")} ${escapeHtml(e.title || "")}</strong> — ${escapeHtml(e.err)}</li>
+              `).join("")}
+            </ul>
+          </details>
+        ` : ""}
+        <div style="margin-top:12px;">
+          <a class="primary-button" href="#/calendar">查看训练日历 →</a>
+          <a class="ghost-button" href="#/logs">查看训练日志 →</a>
+          <button class="ghost-button" id="clearResultBtn">继续导入</button>
+        </div>
+      </div>
+    `;
+    document.getElementById("clearResultBtn")?.addEventListener("click", () => {
+      pendingActivities = [];
+      renderPreview();
+      result.style.display = "none";
+      if (fileInput) fileInput.value = "";
+    });
+    if (!failed) showToast(`成功导入 ${done} 条训练日志！`);
+    else showToast(`导入完成，成功 ${done}，失败 ${failed}`, "error");
+  });
+
+  // 断开平台连接
+  document.querySelectorAll("[data-disconnect]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const p = b.getAttribute("data-disconnect");
+      if (!confirm(`确认断开与 ${platformLabel(p)} 的连接？这只会删除本地连接记录，不会影响你在平台的数据。`)) return;
+      try {
+        await deletePlatformConnection(userId, p);
+        showToast("已断开");
+        renderSyncPage(app, user);
+      } catch (e) {
+        showToast(e.message || "操作失败", "error");
+      }
+    });
+  });
+
+  // Strava 帮助
+  document.getElementById("stravaHelpBtn")?.addEventListener("click", () => {
+    alert(
+      "Strava 自动拉取对接说明（需后端）：\n\n" +
+      "1) 在 https://www.strava.com/settings/api 申请开发者应用，\n" +
+      "   Authorization Callback Domain 填你的后端域名。\n" +
+      "2) 部署一个简单后端（推荐 Cloudflare Workers / Vercel Node），\n" +
+      "   实现 /strava/auth、/strava/callback、/strava/sync 三个接口：\n" +
+      "   - auth: 跳转到 Strava OAuth 授权\n" +
+      "   - callback: 接收 code，换 access_token/refresh_token，加密后写入 external_platform_connections\n" +
+      "   - sync: 读取 token，调用 GET https://www.strava.com/api/v3/athlete/activities?after=xxx\n" +
+      "     把返回活动转换后批量调用本系统的训练日志 upsert。\n" +
+      "3) 把本系统「数据同步」页上的「Strava 对接」按钮改为跳转 /strava/auth。\n\n" +
+      "当前纯前端版本仅支持文件上传导入，这是最稳定、不依赖第三方服务的方案。"
+    );
+  });
 }
 
 /* ===================== 10. 启动引导 ===================== */
