@@ -1,3 +1,27 @@
+/* =========================================================================
+ * AI 中长跑训练系统 V1.0
+ * -------------------------------------------------------------------------
+ * 多页面改造 + 用户账户 + 用户数据保存 + 成绩数据库
+ *
+ *   - 分析/计划生成逻辑保持原 Work 模式实现不变（六维能力、目标成绩模型、
+ *     运动员类型识别、短板识别、训练权重调整、周期计划、配速体系）。
+ *   - 新增：Supabase 客户端、用户认证、数据持久化、Hash 路由、多页面渲染。
+ *
+ * 文件结构：
+ *   1) 核心常量与数据模型
+ *   2) 通用工具（时间解析、Toast、字段读写、HTML 转义）
+ *   3) 输入解析与进一步需求分析
+ *   4) 能力分析核心（analyzeAthlete 及其依赖）
+ *   5) 训练计划生成
+ *   6) 配速体系
+ *   7) 渲染函数（雷达图 / 分析摘要 / 周期 / 周计划）
+ *   8) Supabase 客户端 + 认证模块 + 数据库模块
+ *   9) Hash 路由 + 页面渲染器
+ *  10) 启动引导
+ * ========================================================================= */
+
+/* ===================== 1. 核心常量与数据模型 ===================== */
+
 const EVENT_MODELS = {
   800: {
     name: "800 米",
@@ -53,8 +77,6 @@ const REFERENCE = {
 };
 
 // V2.2 第四章：目标成绩能力模型（Target Performance Model）
-// 取消固定项目需求，改为根据用户输入的目标成绩动态计算六维能力需求
-// 每个目标成绩档位定义了达到该成绩所需的"95分标准"能力画像
 const TARGET_PERFORMANCE_MODEL = {
   800: [
     { time: 100, label: "1:40",  speed: 98, speedEndurance: 98, lactate: 98, vo2max: 80, threshold: 65, aerobic: 50 },
@@ -107,14 +129,11 @@ const DEFAULT_WEIGHTS = {
   5000: { speed: 5, speedEndurance: 10, lactate: 8, vo2max: 20, threshold: 25, aerobic: 32 },
 };
 
-// V1.1 运动员类型识别模型：基于速度偏向指数（SBI = 绝对速度 - 有氧能力）
-// 不依据单项能力高低，而依据速度与耐力的相对结构比例
 const ATHLETE_TYPE_RULES = [
   {
     id: "speed",
     label: "速度型",
     badgeClass: "badge-speed",
-    // V1.1：SBI ≥ 10 且 绝对速度达到需求附近（gap ≤ 15）
     test: (s, d) => (s.speed - s.aerobic >= 10) && s.speed >= d.speed - 15,
     desc: (event) => `速度储备优秀，${event}米训练应优先补强高速保持能力，同时维持速度优势。`,
   },
@@ -122,7 +141,6 @@ const ATHLETE_TYPE_RULES = [
     id: "endurance",
     label: "耐力型",
     badgeClass: "badge-endurance",
-    // V1.1：SBI ≤ -10
     test: (s, d) => s.speed - s.aerobic <= -10,
     desc: (event) => `耐力基础优秀，${event}米训练应重点提升速度储备和爆发力，把耐力优势转化为专项速度。`,
   },
@@ -130,67 +148,18 @@ const ATHLETE_TYPE_RULES = [
     id: "balanced",
     label: "均衡型",
     badgeClass: "badge-balanced",
-    // V1.1：-10 < SBI < 10
     test: () => true,
     desc: (event) => `各项能力较均衡，${event}米训练按目标需求分配重点，均衡提升同时补强最弱维度。`,
   },
 ];
 
 const WEAKNESS_RULES = [
-  {
-    id: "speed_deficit",
-    gapKey: "speed",
-    test: (s, d) => s.speed <= d.speed - 10,
-    type: (event) => `${event}米速度短板`,
-    factor: "绝对速度不足",
-    adjustment: "速度训练 +10%，增加 30-80m 冲刺和短距离高速跑",
-    weightShift: { from: null, to: "speed", amount: 8 },
-  },
-  {
-    id: "speedEndurance_deficit",
-    gapKey: "speedEndurance",
-    test: (s, d) => s.speedEndurance <= d.speedEndurance - 10,
-    type: (event) => `${event}米速度耐力短板`,
-    factor: "中段速度保持能力不足",
-    adjustment: "速度耐力训练 +15%，增加 300-600m 专项训练",
-    weightShift: { from: null, to: "speedEndurance", amount: 8 },
-  },
-  {
-    id: "lactate_deficit",
-    gapKey: "lactate",
-    test: (s, d) => s.lactate <= d.lactate - 10,
-    type: (event) => `${event}米乳酸耐受短板`,
-    factor: "末段乳酸能力不足",
-    adjustment: "乳酸耐受训练 +15%，增加 500-600m 高强度段落",
-    weightShift: { from: null, to: "lactate", amount: 8 },
-  },
-  {
-    id: "vo2max_deficit",
-    gapKey: "vo2max",
-    test: (s, d) => s.vo2max <= d.vo2max - 10,
-    type: (event) => `${event}米 VO₂max 短板`,
-    factor: "最大摄氧能力不足",
-    adjustment: "VO₂max 间歇 +15%，增加 800-1600m 长间歇",
-    weightShift: { from: null, to: "vo2max", amount: 8 },
-  },
-  {
-    id: "threshold_deficit",
-    gapKey: "threshold",
-    test: (s, d) => s.threshold <= d.threshold - 10,
-    type: (event) => `${event}米乳酸阈短板`,
-    factor: "乳酸阈能力不足",
-    adjustment: "阈值训练 +15%，增加节奏跑和阈值间歇",
-    weightShift: { from: null, to: "threshold", amount: 8 },
-  },
-  {
-    id: "aerobic_deficit",
-    gapKey: "aerobic",
-    test: (s, d) => s.aerobic <= d.aerobic - 10,
-    type: (event) => `${event}米有氧短板`,
-    factor: "有氧基础不足",
-    adjustment: "有氧跑量 +15%，延长长跑距离和轻松跑时间",
-    weightShift: { from: null, to: "aerobic", amount: 8 },
-  },
+  { id: "speed_deficit", gapKey: "speed", test: (s, d) => s.speed <= d.speed - 10, type: (event) => `${event}米速度短板`, factor: "绝对速度不足", adjustment: "速度训练 +10%，增加 30-80m 冲刺和短距离高速跑", weightShift: { from: null, to: "speed", amount: 8 } },
+  { id: "speedEndurance_deficit", gapKey: "speedEndurance", test: (s, d) => s.speedEndurance <= d.speedEndurance - 10, type: (event) => `${event}米速度耐力短板`, factor: "中段速度保持能力不足", adjustment: "速度耐力训练 +15%，增加 300-600m 专项训练", weightShift: { from: null, to: "speedEndurance", amount: 8 } },
+  { id: "lactate_deficit", gapKey: "lactate", test: (s, d) => s.lactate <= d.lactate - 10, type: (event) => `${event}米乳酸耐受短板`, factor: "末段乳酸能力不足", adjustment: "乳酸耐受训练 +15%，增加 500-600m 高强度段落", weightShift: { from: null, to: "lactate", amount: 8 } },
+  { id: "vo2max_deficit", gapKey: "vo2max", test: (s, d) => s.vo2max <= d.vo2max - 10, type: (event) => `${event}米 VO₂max 短板`, factor: "最大摄氧能力不足", adjustment: "VO₂max 间歇 +15%，增加 800-1600m 长间歇", weightShift: { from: null, to: "vo2max", amount: 8 } },
+  { id: "threshold_deficit", gapKey: "threshold", test: (s, d) => s.threshold <= d.threshold - 10, type: (event) => `${event}米乳酸阈短板`, factor: "乳酸阈能力不足", adjustment: "阈值训练 +15%，增加节奏跑和阈值间歇", weightShift: { from: null, to: "threshold", amount: 8 } },
+  { id: "aerobic_deficit", gapKey: "aerobic", test: (s, d) => s.aerobic <= d.aerobic - 10, type: (event) => `${event}米有氧短板`, factor: "有氧基础不足", adjustment: "有氧跑量 +15%，延长长跑距离和轻松跑时间", weightShift: { from: null, to: "aerobic", amount: 8 } },
 ];
 
 const TRAINING_LIBRARY = {
@@ -447,23 +416,72 @@ const NEED_KEYWORDS = {
   ],
 };
 
-document.getElementById("planForm").addEventListener("submit", (event) => {
-  event.preventDefault();
+/* ===================== 2. 通用工具 ===================== */
 
-  try {
-    const input = readInput();
-    const analysis = analyzeAthlete(input);
-    const phases = splitPhases(input.weeks);
-    const weeks = buildPlan(input, analysis, phases);
-    renderSummary(input, analysis);
-    renderTimeline(phases);
-    renderPlan(weeks);
-    document.getElementById("resultsPanel").hidden = false;
-    document.getElementById("resultsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
-  } catch (error) {
-    alert(error.message);
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function parseTime(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (!text.includes(":")) {
+    const seconds = Number(text);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
   }
-});
+  const parts = text.split(":").map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return null;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
+
+function formatTime(seconds) {
+  if (!seconds) return "未填写";
+  const rounded = Math.round(seconds);
+  const min = Math.floor(rounded / 60);
+  const sec = rounded % 60;
+  return min > 0 ? `${min}:${String(sec).padStart(2, "0")}` : `${sec}s`;
+}
+
+function escapeHtml(text) {
+  return String(text == null ? "" : text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function setFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function getFieldValue(id) {
+  const el = document.getElementById(id);
+  return el ? el.value : "";
+}
+
+function todayISO() {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+let _toastTimer = null;
+function showToast(message, type) {
+  document.querySelectorAll(".toast").forEach((t) => t.remove());
+  const el = document.createElement("div");
+  el.className = "toast" + (type ? ` toast-${type}` : "");
+  el.textContent = message;
+  document.body.appendChild(el);
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.remove(), 2600);
+}
+
+/* ===================== 3. 输入解析与进一步需求 ===================== */
 
 function readInput() {
   const event = document.getElementById("event").value;
@@ -559,42 +577,17 @@ function analyzeAdditionalNeeds(text) {
   };
 }
 
-function parseTime(value) {
-  const text = String(value || "").trim();
-  if (!text) return null;
-  if (!text.includes(":")) {
-    const seconds = Number(text);
-    return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
-  }
-  const parts = text.split(":").map(Number);
-  if (parts.some((part) => !Number.isFinite(part))) return null;
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return null;
-}
-
-function formatTime(seconds) {
-  if (!seconds) return "未填写";
-  const rounded = Math.round(seconds);
-  const min = Math.floor(rounded / 60);
-  const sec = rounded % 60;
-  return min > 0 ? `${min}:${String(sec).padStart(2, "0")}` : `${sec}s`;
-}
-
 function scoreFromTime(reference, actual, k = 2) {
   if (!actual) return null;
   return clamp(100 * Math.pow(reference / actual, k), 25, 100);
 }
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
+/* ===================== 4. 能力分析核心 ===================== */
 
 function analyzeAthlete(input) {
   const t = input.times;
   const estimated = estimateMissingTimes(t, input.event, input.goalTime);
 
-  // V2.0 第二章：六维能力评分
   const speed = scoreFromTime(REFERENCE.speed400, estimated[400], 2.1);
   const speedEndurance = scoreSpeedEndurance(estimated[400], estimated[600]);
   const lactate = scoreLactate(estimated[600], estimated[800]);
@@ -620,7 +613,6 @@ function analyzeAthlete(input) {
   const ageCoef = calculateAgeCorrection(input.age);
   const correctedScores = {};
   Object.keys(rawScores).forEach((key) => {
-    // V2.1 3.3：所有能力评分封顶100分
     correctedScores[key] = Math.round(clamp(rawScores[key] * ageCoef, 0, 100));
   });
 
@@ -640,10 +632,8 @@ function analyzeAthlete(input) {
     .slice(0, 3);
   const goalDifficulty = rateGoalDifficulty(input.event, input.goalTime, estimated[input.event]);
 
-  // V2.0 第六章：异常数据检测
   const anomalies = detectAnomalies(input.times);
 
-  // V2.1 3.5：计算能力差距等级（取消适配评分）
   const gapAnalysis = {};
   SIX_DIMENSIONS.forEach((dim) => {
     const ability = correctedScores[dim];
@@ -670,23 +660,18 @@ function analyzeAthlete(input) {
   };
 }
 
-// V2.2 第四章4.4：能力差距等级模型（3级制）
-// 取消"适配评分"，改为能力差距等级判断
 function getGapLevel(gap) {
   if (gap >= 10) return { level: "advantage", label: "优势", cls: "gap-advantage" };
   if (gap >= -10) return { level: "matched", label: "满足", cls: "gap-matched" };
   return { level: "deficit", label: "限制因素", cls: "gap-deficit" };
 }
 
-// V2.2 第四章3.7：定性标签输出
-// 系统不向用户展示复杂分数，改用定性标签
 function getQualitativeLabel(gap) {
   if (gap >= 10) return { label: "优势", cls: "qual-excellent" };
   if (gap >= -10) return { label: "满足", cls: "qual-good" };
   return { label: "需要提升", cls: "qual-deficit" };
 }
 
-// V2.0 第六章：异常数据检测
 function detectAnomalies(times) {
   const anomalies = [];
   const checks = [
@@ -749,30 +734,23 @@ function deriveGoalTimes(event, goalTime) {
 }
 
 function calculateGoalDemandScores(event, goalTime, estimated) {
-  // V2.2 第四章：目标成绩能力模型
-  // 不再使用固定项目需求，改为根据用户输入的目标成绩动态计算六维能力需求
-  // 通过在档位之间线性插值，得到该目标成绩所需的能力画像
   return calculateTargetProfile(event, goalTime);
 }
 
-// V2.2 第四章：根据目标成绩计算六维能力需求（线性插值）
 function calculateTargetProfile(event, targetTime) {
   const tiers = TARGET_PERFORMANCE_MODEL[event];
   if (!tiers || !tiers.length) {
     return { speed: 70, speedEndurance: 70, lactate: 70, vo2max: 70, threshold: 70, aerobic: 70 };
   }
 
-  // 如果目标成绩比最快档位还快，使用最快档位
   if (targetTime <= tiers[0].time) {
     return extractProfile(tiers[0]);
   }
-  // 如果目标成绩比最慢档位还慢，使用最慢档位
   const last = tiers[tiers.length - 1];
   if (targetTime >= last.time) {
     return extractProfile(last);
   }
 
-  // 找到目标成绩所在的区间，进行线性插值
   for (let i = 0; i < tiers.length - 1; i++) {
     const lower = tiers[i];
     const upper = tiers[i + 1];
@@ -780,7 +758,6 @@ function calculateTargetProfile(event, targetTime) {
       const ratio = (targetTime - lower.time) / (upper.time - lower.time);
       const result = {};
       SIX_DIMENSIONS.forEach((dim) => {
-        // 时间越慢（ratio越大），能力需求越低
         result[dim] = Math.round(lower[dim] + (upper[dim] - lower[dim]) * ratio);
       });
       return result;
@@ -800,7 +777,6 @@ function extractProfile(tier) {
 
 function classifyAthleteType(scores, goalDemands, event) {
   const eventName = EVENT_MODELS[event].name.replace(" 米", "");
-  // V1.1：速度偏向指数 = 绝对速度评分 - 有氧能力评分
   const sbi = scores.speed != null && scores.aerobic != null
     ? scores.speed - scores.aerobic : 0;
 
@@ -808,17 +784,14 @@ function classifyAthleteType(scores, goalDemands, event) {
   let description = rule.desc(eventName);
   let limitingFactor = null;
 
-  // V1.1 第五章：800米专项修正规则
   if (event === 800) {
     if (rule.id === "speed" && scores.lactate != null && goalDemands.lactate != null) {
-      // 规则1：速度型专项不足 — SBI ≥ 10 且 末段乳酸能力 < 需求 - 15
       if (scores.lactate < goalDemands.lactate - 15) {
         const lactateGap = goalDemands.lactate - scores.lactate;
         limitingFactor = "末段乳酸能力";
         description = `速度偏向指数 ${sbi}，速度储备较好，但末段乳酸能力明显不足（差距 ${lactateGap} 分），速度优势尚未转化为 ${eventName}米成绩。训练重点：增加 300-600m 专项乳酸耐受训练。`;
       }
     } else if (rule.id === "endurance" && scores.speed != null && goalDemands.speed != null) {
-      // 规则2：耐力型专项不足 — SBI ≤ -10 且 绝对速度 < 需求 - 15
       if (scores.speed < goalDemands.speed - 15) {
         const speedGap = goalDemands.speed - scores.speed;
         limitingFactor = "绝对速度";
@@ -840,11 +813,8 @@ function classifyAthleteType(scores, goalDemands, event) {
 function analyzeWeaknesses(scores, goalDemands, event, athleteType) {
   const eventName = EVENT_MODELS[event].name.replace(" 米", "");
 
-  // V2.0 第五章：短板识别
-  // 找出所有满足条件的短板规则
   const matched = WEAKNESS_RULES.filter((rule) => rule.test(scores, goalDemands));
 
-  // 按差距大小排序，差距最大的排在前面
   const results = matched.map((rule) => {
     const dim = rule.gapKey || rule.id.replace("_deficit", "");
     const gap = scores[dim] != null && goalDemands[dim] != null
@@ -860,7 +830,6 @@ function analyzeWeaknesses(scores, goalDemands, event, athleteType) {
   }).sort((a, b) => b.gap - a.gap);
 
   if (!results.length) {
-    // V2.0 第五章：找差距最大的能力作为主要限制因素
     const dims = SIX_DIMENSIONS.filter((d) => scores[d] != null && goalDemands[d] != null);
     if (dims.length) {
       const weakest = dims
@@ -942,9 +911,6 @@ function avgVal(values) {
 }
 
 function scoreSpeedEndurance(t400, t600) {
-  // V2.0 第二章2.2：中段速度耐力
-  // 比较400m速度延伸后的理论600m能力与实际600m成绩
-  // 中段速度保持率 = 理论600m时间 / 实际600m时间
   if (!t400 || !t600) return null;
   const theoretical600 = t400 * (REFERENCE.lactate600 / REFERENCE.speed400);
   const ratio = theoretical600 / t600;
@@ -952,10 +918,6 @@ function scoreSpeedEndurance(t400, t600) {
 }
 
 function scoreLactate(t600, t800) {
-  // V2.0 第二章2.3：末段乳酸能力
-  // 计算600m结束后的最后200m速度下降程度
-  // 末段速度下降 = 最后200m时间 - 前200m平均时间
-  // 下降越小，乳酸能力越强
   if (!t600 || !t800) return null;
   const last200 = t800 - t600;
   const avg200 = t600 / 3;
@@ -964,8 +926,6 @@ function scoreLactate(t600, t800) {
 }
 
 function scoreVo2(times) {
-  // V2.0 第二章2.4：VO₂max能力
-  // 数据来源：1500m, 3000m
   const candidates = [
     scoreFromTime(REFERENCE.t1500, times[1500], 1.9),
     scoreFromTime(REFERENCE.t3000, times[3000], 2.0),
@@ -974,8 +934,6 @@ function scoreVo2(times) {
 }
 
 function scoreAerobic(times) {
-  // V2.0 第二章2.5：有氧能力
-  // 数据来源：3000m, 5000m, 10km
   const candidates = [
     scoreFromTime(REFERENCE.t3000, times[3000], 2.0),
     scoreFromTime(REFERENCE.t5000, times[5000], 2.0),
@@ -985,9 +943,6 @@ function scoreAerobic(times) {
 }
 
 function scoreThreshold(times) {
-  // V2.0 第二章2.6：乳酸阈能力
-  // 数据来源：5000m, 10km
-  // 注意：1500米成绩不能直接代表乳酸阈能力
   const candidates = [
     times[5000] ? scoreFromTime(REFERENCE.t5000, times[5000], 1.8) : null,
     times[10000] ? scoreFromTime(REFERENCE.t10000, times[10000], 1.8) : null,
@@ -1018,6 +973,8 @@ function rateGoalDifficulty(event, goalTime, currentTime) {
   if (improvement <= 0.14) return "目标进取，建议延长周期或提高恢复管理质量。";
   return "目标跨度较大，当前周期宜先建立阶段目标，避免过快增加强度。";
 }
+
+/* ===================== 5. 训练计划生成 ===================== */
 
 function splitPhases(totalWeeks) {
   let remaining = totalWeeks;
@@ -1069,7 +1026,6 @@ function pickEmphasis(input, analysis, phase) {
   const avoidKeys = input.adjustment?.avoidKeys || [];
   const removeAvoided = (keys) => keys.filter((key) => !avoidKeys.includes(key));
 
-  // V2.3：按能力差距排序（差距最大的最优先），排除已经是优势的维度（gap >= 10）
   const gaps = {};
   SIX_DIMENSIONS.forEach((k) => {
     gaps[k] = analysis.scores[k] != null && analysis.goalDemands[k] != null
@@ -1077,11 +1033,9 @@ function pickEmphasis(input, analysis, phase) {
   });
 
   const sortedByGap = SIX_DIMENSIONS
-    .filter((k) => gaps[k] < 10) // 排除优势维度
-    .sort((a, b) => gaps[a] - gaps[b]); // 差距最大的（最负）排在最前
+    .filter((k) => gaps[k] < 10)
+    .sort((a, b) => gaps[a] - gaps[b]);
 
-  // V2.3：短板优先！gap 排序结果放在 requestedFocus 之前
-  // 用户输入的 focus 仅用于填补剩余位置，且如果该维度是优势（gap >= 0）则不优先放入
   const validFocus = requestedFocus.filter((k) => gaps[k] < 0);
 
   if (phase.id === "base") return removeAvoided([...new Set([...sortedByGap.slice(0, 2), ...validFocus, "aerobic", "strength"])]).slice(0, 3);
@@ -1101,7 +1055,6 @@ function buildWeekDays(input, analysis, phase, load, weekNo) {
   const specialWorkout = getEventSpecialWorkout(input.event, phase.id, weekNo);
   const qualityDayTitle = specialWorkout ? `${input.model.name} 专项刺激` : LABELS[secondary];
 
-  // V2.2：为每个训练日生成对应的配速提示
   const paceFor = (type) => buildPaceHintForType(input, analysis, type);
   const paceHintPrimary = paceFor(primary);
   const paceHintSecondary = paceFor(specialWorkout ? "eventSpecific" : secondary);
@@ -1174,7 +1127,8 @@ function buildPaceHint(goalTime, event) {
   return `参考配速：${event}m 比赛节奏约 ${pacePerUnit.toFixed(1)} 秒/100m，其他训练类型配速见上方「训练配速参考表」。`;
 }
 
-// V2.2：根据训练类型生成对应的配速提示
+/* ===================== 6. 配速体系 ===================== */
+
 function buildPaceHintForType(input, analysis, trainingType) {
   const est = analysis.estimated;
   const event = Number(input.event);
@@ -1218,27 +1172,20 @@ function buildPaceHintForType(input, analysis, trainingType) {
     case "recovery":
       return easyPerKm ? `配速：${fmt(easyPerKm + 15)}/km（恢复跑，RPE 3）。` : "";
     case "eventSpecific": {
-      // V2.3：根据专项距离动态选择配速参考
-      // 原则：长段落用比专项更长的距离配速（更慢），短段落用比专项更短的距离配速（更快）
-      // 这样长段落控速积累，短段落提速刺激，避免所有段落都按比赛节奏跑
       let longPace = null, longLabel = "";
       let midPace = null, midLabel = "";
       let shortPace = null, shortLabel = "";
 
       if (event === 800) {
-        // 800m 专项：长段落用 1500m 配速，短段落用 400m 配速
         if (t1500) { longPace = per100(t1500, 1500); longLabel = "1500m 节奏"; }
         if (t400) { shortPace = per100(t400, 400); shortLabel = "400m 速度"; }
       } else if (event === 1500) {
-        // 1500m 专项：长段落用 3000m 配速，短段落用 800m 配速
         if (t3000) { longPace = per100(t3000, 3000); longLabel = "3000m 节奏"; }
         if (t800) { shortPace = per100(t800, 800); shortLabel = "800m 速度"; }
       } else if (event === 3000) {
-        // 3000m 专项：长段落用 5000m 配速，短段落用 1500m 配速
         if (t5000) { longPace = per100(t5000, 5000); longLabel = "5000m 节奏"; }
         if (t1500) { shortPace = per100(t1500, 1500); shortLabel = "1500m 速度"; }
       } else if (event === 5000) {
-        // 5000m 专项：长段落用 10000m 配速，短段落用 3000m 配速
         if (t10000) { longPace = per100(t10000, 10000); longLabel = "10km 节奏"; }
         else if (t5000) { longPace = perKm(t5000, 5000) * 1.06 / 10; longLabel = "阈值节奏"; }
         if (t3000) { shortPace = per100(t3000, 3000); shortLabel = "3000m 速度"; }
@@ -1258,7 +1205,6 @@ function buildPaceHintForType(input, analysis, trainingType) {
   }
 }
 
-// V2.2：配速表生成 — 根据用户目标成绩推算各训练类型的具体配速
 function formatPaceTime(seconds) {
   if (seconds == null || !isFinite(seconds)) return "—";
   const m = Math.floor(seconds / 60);
@@ -1272,7 +1218,6 @@ function buildPaceTable(input, analysis) {
   const event = Number(input.event);
   const goalTime = input.goalTime;
 
-  // 从估算成绩中提取各距离时间
   const t400 = est[400];
   const t800 = est[800] || (event === 800 ? goalTime : null);
   const t1500 = est[1500];
@@ -1280,21 +1225,13 @@ function buildPaceTable(input, analysis) {
   const t5000 = est[5000];
   const t10000 = est[10000];
 
-  // 计算每 100m 配速
   const per100 = (time, dist) => (time && dist ? time / (dist / 100) : null);
-  // 计算每 400m 配速
   const per400 = (time, dist) => (time && dist ? time / (dist / 400) : null);
-  // 计算每 km 配速
   const perKm = (time, dist) => (time && dist ? time / (dist / 1000) : null);
 
-  // 阈值配速：约比 5km 配速慢 6-8%
   const thresholdPerKm = t5000 ? perKm(t5000, 5000) * 1.07 : (t3000 ? perKm(t3000, 3000) * 1.10 : null);
-  // 轻松跑配速：比阈值配速慢 60-75 秒/km
   const easyPerKm = thresholdPerKm ? thresholdPerKm + 65 : null;
-  // 冲刺配速：基于 400m 成绩，略快
   const sprintPer100 = t400 ? per100(t400, 400) * 0.92 : null;
-
-  // 比赛配速（用户目标项目的配速）
   const racePer100 = goalTime ? per100(goalTime, event) : null;
 
   const rows = [
@@ -1312,7 +1249,6 @@ function buildPaceTable(input, analysis) {
     },
   ];
 
-  // 800m 配速（如果项目不是 800m）
   if (event !== 800 && t800) {
     rows.push({
       label: "800m 配速",
@@ -1322,7 +1258,6 @@ function buildPaceTable(input, analysis) {
     });
   }
 
-  // 1500m 配速
   if (t1500) {
     rows.push({
       label: "1500m 配速",
@@ -1332,7 +1267,6 @@ function buildPaceTable(input, analysis) {
     });
   }
 
-  // 3km 配速
   if (t3000) {
     rows.push({
       label: "3km 配速",
@@ -1342,7 +1276,6 @@ function buildPaceTable(input, analysis) {
     });
   }
 
-  // 5km 配速
   if (t5000) {
     rows.push({
       label: "5km 配速",
@@ -1352,7 +1285,6 @@ function buildPaceTable(input, analysis) {
     });
   }
 
-  // 阈值配速
   if (thresholdPerKm) {
     rows.push({
       label: "阈值配速",
@@ -1362,7 +1294,6 @@ function buildPaceTable(input, analysis) {
     });
   }
 
-  // 轻松跑配速
   if (easyPerKm) {
     rows.push({
       label: "轻松跑配速",
@@ -1375,18 +1306,17 @@ function buildPaceTable(input, analysis) {
   return rows;
 }
 
+/* ===================== 7. 渲染函数 ===================== */
+
 function renderSummary(input, analysis) {
-  // V2.0 第七章 + V2.1 3.7：教练化语言输出
   const weakText = analysis.weakKeys.map((key) => LABELS[key]).join("、");
   const focusText = input.model.focus.join("、");
   const typeBadge = analysis.athleteType;
 
-  // V2.0 第六章：异常数据警告
   const anomalyWarning = analysis.anomalies?.length
     ? `<div class="adjustment-box" style="border-color:var(--red);background:linear-gradient(180deg,#fff5f4,#fef0ee)"><strong style="color:var(--red)">⚠ 数据异常提醒</strong>${analysis.anomalies.map((a) => `<p style="color:#a04030">${a}</p>`).join("")}</div>`
     : "";
 
-  // V2.1 3.5：能力评估详情（用差距等级替代适配评分）
   const scoreRows = SIX_DIMENSIONS
     .map((dim) => {
       const absScore = analysis.scores[dim] ?? "—";
@@ -1401,7 +1331,6 @@ function renderSummary(input, analysis) {
     })
     .join("");
 
-  // V2.1 3.7：能力画像（定性标签替代复杂分数）
   const abilityProfile = SIX_DIMENSIONS
     .map((dim) => {
       const score = analysis.scores[dim];
@@ -1414,7 +1343,6 @@ function renderSummary(input, analysis) {
     .filter(Boolean)
     .join("");
 
-  // V2.1 3.7：教练建议
   const coachAdvice = generateCoachAdvice(analysis, input);
 
   const weaknessItems = analysis.weaknessAnalysis
@@ -1431,7 +1359,6 @@ function renderSummary(input, analysis) {
     ? `<div class="adjustment-box"><strong>动态调整</strong>${input.adjustment.notes.map((note) => `<p>${note}</p>`).join("")}</div>`
     : "";
 
-  // V2.0 第七章：教练语言描述优势
   const advantageDims = SIX_DIMENSIONS
     .filter((d) => analysis.scores[d] != null && analysis.goalDemands[d] != null)
     .filter((d) => analysis.scores[d] >= analysis.goalDemands[d] - 10)
@@ -1522,11 +1449,9 @@ function renderSummary(input, analysis) {
   drawRadarChart("radarChart", analysis.scores, analysis.goalDemands);
 }
 
-// V2.1 3.7：教练建议生成函数
 function generateCoachAdvice(analysis, input) {
   const eventName = input.model.name.replace(" 米", "");
 
-  // V2.1 3.6：训练决策基于最大差距而非最低分
   const gaps = SIX_DIMENSIONS
     .filter((d) => analysis.scores[d] != null && analysis.goalDemands[d] != null)
     .map((d) => ({
@@ -1535,14 +1460,13 @@ function generateCoachAdvice(analysis, input) {
       score: analysis.scores[d],
       demand: analysis.goalDemands[d],
     }))
-    .sort((a, b) => a.gap - b.gap); // 差距最大的排最前
+    .sort((a, b) => a.gap - b.gap);
 
   const maxGap = gaps[0];
   const limitingFactor = maxGap && maxGap.gap < -10
     ? `${LABELS[maxGap.dim]}（当前${maxGap.score}分，目标需求${maxGap.demand}分，差距${maxGap.gap}分）`
     : "各维度基本达标，无明显限制因素";
 
-  // 根据最大差距维度生成训练重点
   const focusMap = {
     speed: "提高短距离冲刺和速度力量，增加 30-80m 高速跑训练",
     speedEndurance: "提升中段速度保持能力，增加 300-600m 专项训练",
@@ -1580,7 +1504,6 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
   const dims = SIX_DIMENSIONS;
   const n = dims.length;
   const angleStep = (Math.PI * 2) / n;
-  // V2.1 3.3：雷达图最大值改为100（所有能力评分封顶100分）
   const minVal = 20;
   const maxVal = 100;
   const range = maxVal - minVal;
@@ -1592,7 +1515,6 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // V2.1：网格标签更新为0-100范围
   const gridLabels = ["40", "55", "70", "85", "100"];
   for (let level = 1; level <= 5; level++) {
     const r = (radius * level) / 5;
@@ -1718,4 +1640,977 @@ function renderWeekCard(week) {
       <ul class="day-list">${dayItems}</ul>
     </article>
   `;
+}
+
+/* ===================== 8. Supabase 客户端 + 认证 + 数据库 ===================== */
+
+let supabaseClient = null;
+let currentUser = null;
+
+function isSupabaseReady() {
+  return (
+    window.SUPABASE_CONFIGURED &&
+    typeof window.supabase !== "undefined" &&
+    window.supabase &&
+    typeof window.supabase.createClient === "function"
+  );
+}
+
+function initSupabase() {
+  if (supabaseClient) return supabaseClient;
+  if (!isSupabaseReady()) return null;
+  supabaseClient = window.supabase.createClient(
+    window.SUPABASE_CONFIG.url,
+    window.SUPABASE_CONFIG.anonKey
+  );
+  return supabaseClient;
+}
+
+/* ---- 认证模块 ---- */
+async function authSignUp(email, password) {
+  const client = initSupabase();
+  const { data, error } = await client.auth.signUp({ email, password });
+  if (error) throw error;
+  return data;
+}
+
+async function authSignIn(email, password) {
+  const client = initSupabase();
+  const { data, error } = await client.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data;
+}
+
+async function authSignOut() {
+  const client = initSupabase();
+  const { error } = await client.auth.signOut();
+  if (error) throw error;
+}
+
+/* ---- 数据库模块：profiles ---- */
+async function saveProfile(userId, profile) {
+  const client = initSupabase();
+  const { error } = await client
+    .from("profiles")
+    .upsert({ id: userId, ...profile }, { onConflict: "id" });
+  if (error) throw error;
+}
+
+async function getProfile(userId) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/* ---- 数据库模块：performance_records ---- */
+async function listPerformances(userId) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("performance_records")
+    .select("*")
+    .eq("user_id", userId)
+    .order("record_date", { ascending: false, nullsFirst: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function addPerformance(userId, record) {
+  const client = initSupabase();
+  const { error } = await client
+    .from("performance_records")
+    .insert({ user_id: userId, ...record });
+  if (error) throw error;
+}
+
+async function deletePerformance(userId, id) {
+  const client = initSupabase();
+  const { error } = await client
+    .from("performance_records")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+/* ---- 数据库模块：analysis_snapshots ---- */
+async function saveAnalysis(userId, input, analysis, phases, weeks) {
+  const client = initSupabase();
+  const label = `${input.model.name} / 目标 ${formatTime(input.goalTime)}`;
+  const { error } = await client.from("analysis_snapshots").insert({
+    user_id: userId,
+    input_json: input,
+    analysis_json: analysis,
+    phases_json: phases,
+    plan_json: weeks,
+    label,
+  });
+  if (error) throw error;
+}
+
+async function getLatestAnalysis(userId) {
+  const client = initSupabase();
+  const { data, error } = await client
+    .from("analysis_snapshots")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/* ===================== 9. Hash 路由 + 页面渲染器 ===================== */
+
+const ROUTES = {
+  "/": renderDashboardPage,
+  "/auth": renderAuthPage,
+  "/profile": renderProfilePage,
+  "/performance": renderPerformancePage,
+  "/analysis": renderAnalysisPage,
+  "/plan": renderPlanPage,
+};
+
+const PROTECTED_ROUTES = ["/profile", "/performance", "/plan"];
+
+function currentRoute() {
+  const hash = window.location.hash.replace(/^#/, "");
+  return hash || "/";
+}
+
+function navigate(path) {
+  if (currentRoute() === path) {
+    router();
+  } else {
+    window.location.hash = path;
+  }
+}
+
+function updateNavActive(path) {
+  document.querySelectorAll("#navLinks a").forEach((a) => {
+    a.classList.toggle("active", a.getAttribute("data-route") === path);
+  });
+}
+
+function renderNavAuth() {
+  const el = document.getElementById("navAuth");
+  if (!el) return;
+  if (currentUser) {
+    const email = currentUser.email || "";
+    el.innerHTML = `
+      <span class="nav-user">已登录 <strong>${escapeHtml(email)}</strong></span>
+      <button class="ghost-button" id="logoutBtn">退出</button>
+    `;
+    const btn = document.getElementById("logoutBtn");
+    if (btn) {
+      btn.addEventListener("click", async () => {
+        try {
+          await authSignOut();
+          showToast("已退出登录");
+        } catch (e) {
+          showToast(e.message || "退出失败", "error");
+        }
+      });
+    }
+  } else {
+    el.innerHTML = `<a class="primary-button" href="#/auth">登录 / 注册</a>`;
+  }
+}
+
+function guardHTML(title, desc, btnLabel, btnHref) {
+  return `<section class="guard"><h2>${title}</h2><p>${desc}</p><a class="primary-button" href="${btnHref}">${btnLabel}</a></section>`;
+}
+
+async function router() {
+  const path = currentRoute();
+  const app = document.getElementById("app");
+  updateNavActive(path);
+
+  const renderer = ROUTES[path] || renderDashboardPage;
+
+  if (PROTECTED_ROUTES.includes(path) && !currentUser) {
+    app.innerHTML = guardHTML("请先登录", "访问该页面需要登录账户。注册后即可保存运动档案、成绩和分析结果。", "去登录", "#/auth");
+    return;
+  }
+
+  try {
+    await renderer(app, currentUser);
+  } catch (err) {
+    app.innerHTML = `<div class="guard"><h2>出错了</h2><p>${escapeHtml(err.message || String(err))}</p></div>`;
+  }
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+/* ---- 首页 / Dashboard ---- */
+async function renderDashboardPage(app, user) {
+  if (!user) {
+    renderLanding(app);
+    return;
+  }
+
+  app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
+
+  let snap = null;
+  let profile = null;
+  try {
+    [snap, profile] = await Promise.all([getLatestAnalysis(user.id), getProfile(user.id)]);
+  } catch (e) {
+    /* 忽略，按空状态展示 */
+  }
+
+  const nickname = profile?.nickname || user.email?.split("@")[0] || "运动员";
+  let statusCards = "";
+
+  if (profile) {
+    const goalText = profile.goal_event && profile.goal_time
+      ? `${profile.goal_event} 米 ${profile.goal_time}`
+      : (profile.goal_event ? `${profile.goal_event} 米` : (profile.goal_time || "未设置"));
+    statusCards += `
+      <div class="status-card">
+        <span class="label">目标</span>
+        <span class="value">${escapeHtml(goalText)}</span>
+        ${profile.race_date ? `<span class="sub">比赛日期 ${escapeHtml(profile.race_date)}</span>` : ""}
+      </div>`;
+  }
+
+  if (snap) {
+    const input = snap.input_json || {};
+    const analysis = snap.analysis_json || {};
+    const eventName = input.event ? EVENT_MODELS[input.event]?.name : "";
+    const predicted = analysis.estimated && input.event ? formatTime(analysis.estimated[input.event]) : "—";
+    const limiting = analysis.weakKeys?.length
+      ? analysis.weakKeys.map((k) => LABELS[k]).join("、")
+      : "各维度基本达标";
+    const typeLabel = analysis.athleteType?.label || "—";
+    statusCards += `
+      <div class="status-card">
+        <span class="label">当前预测 (${escapeHtml(eventName)})</span>
+        <span class="value">${escapeHtml(predicted)}</span>
+        <span class="sub">运动员类型：${escapeHtml(typeLabel)}</span>
+      </div>
+      <div class="status-card">
+        <span class="label">主要限制</span>
+        <span class="value">${escapeHtml(limiting)}</span>
+        <span class="sub">专项综合评分 ${analysis.weightedScore ?? "—"}/100</span>
+      </div>`;
+  }
+
+  if (!statusCards) {
+    statusCards = `
+      <div class="status-card">
+        <span class="label">开始使用</span>
+        <span class="value">欢迎，${escapeHtml(nickname)}</span>
+        <span class="sub">完善运动档案并生成首次能力分析，开启你的训练计划。</span>
+      </div>`;
+  }
+
+  app.innerHTML = `
+    <section class="page">
+      <div class="page-head">
+        <p class="eyebrow">Dashboard</p>
+        <h2>欢迎回来，${escapeHtml(nickname)}</h2>
+      </div>
+      <div class="dashboard-grid">${statusCards}</div>
+      <div class="quick-actions">
+        <a class="primary-button" href="#/profile">完善运动档案</a>
+        <a class="secondary-button" href="#/performance">记录我的成绩</a>
+        <a class="secondary-button" href="#/analysis">生成能力分析</a>
+        <a class="secondary-button" href="#/plan">查看训练计划</a>
+      </div>
+    </section>
+  `;
+}
+
+function renderLanding(app) {
+  app.innerHTML = `
+    <section class="page">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">800m · 1500m · 3000m · 5000m</p>
+          <h1>面向进阶跑者的 AI 中长跑训练系统</h1>
+          <p class="hero-copy">
+            建立个人运动档案，记录成绩变化，生成六维能力分析与周期训练计划。
+            注册账户后，数据将长期保存到云端，跨设备同步使用。
+          </p>
+          <div class="hero-actions">
+            <a class="primary-button" href="#/auth">注册 / 登录</a>
+            <a class="secondary-button" href="#/analysis">直接试用分析</a>
+          </div>
+        </div>
+        <div class="hero-card">
+          <div class="metric">
+            <span>训练阶段</span>
+            <strong>基础期 → 强化期 → 专项期 → 调整期</strong>
+          </div>
+          <div class="metric">
+            <span>能力指标</span>
+            <strong>速度、速度耐力、乳酸、VO₂max、乳酸阈、有氧</strong>
+          </div>
+          <div class="metric">
+            <span>账户与数据</span>
+            <strong>注册账户、运动档案、成绩数据库、分析快照</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page panel model">
+      <div class="page-head">
+        <p class="eyebrow">Model</p>
+        <h2>训练模型逻辑</h2>
+      </div>
+      <div class="model-grid">
+        <article>
+          <h3>专项化</h3>
+          <p>按目标项目分配能力权重：800 米偏速度、速度耐力与乳酸能力；5000 米偏有氧、阈值与 VO₂max。</p>
+        </article>
+        <article>
+          <h3>周期化</h3>
+          <p>训练周期分为基础期、强化期、专项期和调整期，逐步从能力建设过渡到比赛状态。</p>
+        </article>
+        <article>
+          <h3>数据驱动</h3>
+          <p>根据当前成绩计算能力评分，识别低于目标需求的能力短板，并将短板转化为训练重点。</p>
+        </article>
+        <article>
+          <h3>训练动作库</h3>
+          <p>内置 300m、400m、500m、1200m、1600m、2000m，800m 专项刺激和 1500m 金字塔训练，并按周轮换训练内容。</p>
+        </article>
+      </div>
+
+      <div class="page-head" style="margin-top:28px">
+        <p class="eyebrow">Science</p>
+        <h2>各项目科学依据</h2>
+      </div>
+      <div class="science-grid">
+        <article class="science-card">
+          <h3>800 米</h3>
+          <p class="science-desc">非单纯速度或耐力，由无氧能力（速度、乳酸产生）、速度耐力、VO₂max 和乳酸清除能力共同决定。研究显示 800 成绩与峰值摄氧量、乳酸动力学存在显著相关。</p>
+          <div class="science-tags">
+            <span>无氧能力</span><span>速度耐力</span><span>VO₂max</span><span>乳酸清除</span>
+          </div>
+        </article>
+        <article class="science-card">
+          <h3>1500 米</h3>
+          <p class="science-desc">偏混合型，核心依赖 VO₂max、vVO₂max、乳酸阈、跑步经济性和速度储备。研究表明 VO₂max、乳酸阈速度和跑步经济性都是中距离表现的重要预测因素。</p>
+          <div class="science-tags">
+            <span>VO₂max</span><span>vVO₂max</span><span>乳酸阈</span><span>跑步经济性</span><span>速度储备</span>
+          </div>
+        </article>
+        <article class="science-card">
+          <h3>3000 / 5000 米</h3>
+          <p class="science-desc">明显向有氧倾斜，主要依赖乳酸阈、VO₂max、跑步经济性和有氧耐力。随距离增加，乳酸反应和有氧参数的重要性提高。</p>
+          <div class="science-tags">
+            <span>乳酸阈</span><span>VO₂max</span><span>跑步经济性</span><span>有氧耐力</span>
+          </div>
+        </article>
+      </div>
+
+      <div class="page-head" style="margin-top:28px">
+        <p class="eyebrow">Formulas</p>
+        <h2>评分公式与标准化方法</h2>
+      </div>
+      <div class="formula-grid">
+        <div class="formula-card">
+          <h4>绝对速度</h4>
+          <code>score = 100 × (参考400m ÷ 实际400m)^2.1</code>
+          <p>参考值 47 秒（精英级 400m），衡量爆发力和最大速度能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>速度耐力</h4>
+          <code>score = 100 × (理论600m ÷ 实际600m)^2.5</code>
+          <p>通过 400m 延伸理论 600m 与实际 600m 的速度保持率评估。</p>
+        </div>
+        <div class="formula-card">
+          <h4>乳酸能力</h4>
+          <code>score = 100 × (1 ÷ 末段速度下降比)^3</code>
+          <p>衡量 600m 后最后 200m 速度下降程度，下降越小乳酸能力越强。</p>
+        </div>
+        <div class="formula-card">
+          <h4>VO₂max</h4>
+          <code>score = avg(1500m, 3000m 评分)</code>
+          <p>取中距离项目的评分均值，反映最大摄氧能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>乳酸阈</h4>
+          <code>score = avg(5000m, 10000m 评分)</code>
+          <p>基于 5000m 和 10km 成绩评估长时间高强度维持能力。</p>
+        </div>
+        <div class="formula-card">
+          <h4>有氧能力</h4>
+          <code>score = avg(3000m, 5000m, 10000m 评分)</code>
+          <p>综合长距离成绩评估基础有氧耐力水平。</p>
+        </div>
+        <div class="formula-card">
+          <h4>年龄修正</h4>
+          <code>最终评分 = 基础评分 × 年龄修正系数</code>
+          <p>18-22 岁系数 1.0，每增加 5 岁递减，青少年适当上调。</p>
+        </div>
+        <div class="formula-card">
+          <h4>目标需求</h4>
+          <code>需求 = 目标成绩 → 六维能力画像（线性插值）</code>
+          <p>根据目标成绩在档位间插值，动态计算各维度所需能力。</p>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+/* ---- 认证页 ---- */
+async function renderAuthPage(app, user) {
+  if (user) {
+    app.innerHTML = `
+      <section class="guard">
+        <h2>已登录</h2>
+        <p>当前账户：${escapeHtml(user.email || "")}</p>
+        <div class="quick-actions" style="justify-content:center">
+          <a class="primary-button" href="#/">前往首页</a>
+          <a class="secondary-button" href="#/profile">运动档案</a>
+        </div>
+      </section>`;
+    return;
+  }
+
+  if (!isSupabaseReady()) {
+    app.innerHTML = `
+      <section class="auth-wrap">
+        <div class="auth-card">
+          <h2>账户系统尚未配置</h2>
+          <div class="config-warn" style="margin-top:16px">
+            <strong>使用前请先配置 Supabase：</strong>
+            <ol style="margin:10px 0 0 18px;line-height:1.9">
+              <li>前往 <code>supabase.com</code> 注册并新建项目。</li>
+              <li>在 Supabase 控制台 <code>SQL Editor</code> 中运行 <code>schema.sql</code> 创建数据表。</li>
+              <li>在 <code>Settings → API</code> 中复制 Project URL 和 anon public key。</li>
+              <li>打开 <code>supabase-config.js</code>，填入 <code>url</code> 与 <code>anonKey</code>。</li>
+              <li>刷新本页面即可使用注册 / 登录 / 数据保存功能。</li>
+            </ol>
+          </div>
+        </div>
+      </section>`;
+    return;
+  }
+
+  app.innerHTML = `
+    <section class="auth-wrap">
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button class="auth-tab active" data-mode="signin" id="tabSignin">登录</button>
+          <button class="auth-tab" data-mode="signup" id="tabSignup">注册</button>
+        </div>
+        <form class="auth-form" id="authForm">
+          <label>
+            邮箱
+            <input id="authEmail" type="email" placeholder="you@example.com" required autocomplete="email" />
+          </label>
+          <label>
+            密码
+            <input id="authPassword" type="password" placeholder="至少 6 位" required autocomplete="current-password" minlength="6" />
+          </label>
+          <button class="primary-button full" type="submit" id="authSubmit">登录</button>
+          <p class="auth-hint" id="authHint">已有账户？输入邮箱密码即可登录。新用户请点击「注册」。</p>
+        </form>
+      </div>
+    </section>
+  `;
+
+  let mode = "signin";
+  const tabSignin = document.getElementById("tabSignin");
+  const tabSignup = document.getElementById("tabSignup");
+  const submitBtn = document.getElementById("authSubmit");
+  const hint = document.getElementById("authHint");
+
+  function setMode(next) {
+    mode = next;
+    tabSignin.classList.toggle("active", mode === "signin");
+    tabSignup.classList.toggle("active", mode === "signup");
+    submitBtn.textContent = mode === "signin" ? "登录" : "注册";
+    if (mode === "signin") {
+      hint.textContent = "已有账户？输入邮箱密码即可登录。新用户请点击「注册」。";
+    } else {
+      hint.textContent = "注册后即可保存运动档案、成绩和分析结果。请使用至少 6 位密码。";
+    }
+  }
+
+  tabSignin.addEventListener("click", () => setMode("signin"));
+  tabSignup.addEventListener("click", () => setMode("signup"));
+
+  document.getElementById("authForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = getFieldValue("authEmail").trim();
+    const password = getFieldValue("authPassword");
+    if (!email || !password) {
+      showToast("请填写邮箱和密码", "error");
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = mode === "signin" ? "登录中…" : "注册中…";
+    try {
+      if (mode === "signup") {
+        const data = await authSignUp(email, password);
+        if (data?.user && data?.session) {
+          showToast("注册成功，已登录", "success");
+          navigate("/");
+        } else {
+          showToast("注册成功，请到邮箱确认后登录", "success");
+          setMode("signin");
+        }
+      } else {
+        await authSignIn(email, password);
+        showToast("登录成功", "success");
+        navigate("/");
+      }
+    } catch (err) {
+      showToast(err.message || "操作失败", "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = mode === "signin" ? "登录" : "注册";
+    }
+  });
+}
+
+/* ---- 运动档案页 ---- */
+async function renderProfilePage(app, user) {
+  app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
+
+  let profile = null;
+  try {
+    profile = await getProfile(user.id);
+  } catch (e) {
+    /* 忽略，按空表单展示 */
+  }
+
+  const p = profile || {};
+  app.innerHTML = `
+    <section class="page">
+      <div class="page-head">
+        <p class="eyebrow">Profile</p>
+        <h2>我的运动档案</h2>
+      </div>
+      <form id="profileForm" class="form-card panel" style="box-shadow:none">
+        <div class="profile-section">
+          <h3>基础信息</h3>
+          <div class="form-grid cols-3">
+            <label>昵称<input id="pf_nickname" type="text" value="${escapeHtml(p.nickname || "")}" placeholder="如 小跑"/></label>
+            <label>年龄<input id="pf_age" type="number" min="10" max="70" value="${p.age ?? ""}" placeholder="如 25"/></label>
+            <label>性别
+              <select id="pf_gender">
+                <option value="">未填写</option>
+                <option value="male" ${p.gender === "male" ? "selected" : ""}>男</option>
+                <option value="female" ${p.gender === "female" ? "selected" : ""}>女</option>
+              </select>
+            </label>
+            <label>身高 (cm)<input id="pf_height" type="number" min="120" max="230" value="${p.height ?? ""}" placeholder="如 175"/></label>
+            <label>体重 (kg)<input id="pf_weight" type="number" min="30" max="150" value="${p.weight ?? ""}" placeholder="如 62"/></label>
+          </div>
+        </div>
+
+        <div class="profile-section" style="margin-top:16px">
+          <h3>训练信息</h3>
+          <div class="form-grid cols-3">
+            <label>主要项目
+              <select id="pf_main_event">
+                <option value="">未选择</option>
+                <option value="800" ${p.main_event === "800" ? "selected" : ""}>800 米</option>
+                <option value="1500" ${p.main_event === "1500" ? "selected" : ""}>1500 米</option>
+                <option value="3000" ${p.main_event === "3000" ? "selected" : ""}>3000 米</option>
+                <option value="5000" ${p.main_event === "5000" ? "selected" : ""}>5000 米</option>
+              </select>
+            </label>
+            <label>训练年限 (年)<input id="pf_training_years" type="number" min="0" max="40" step="0.5" value="${p.training_years ?? ""}" placeholder="如 3"/></label>
+            <label>每周训练次数<input id="pf_sessions" type="number" min="1" max="14" value="${p.sessions_per_week ?? ""}" placeholder="如 6"/></label>
+            <label>当前周跑量 (km)<input id="pf_weekly_volume" type="number" min="0" max="300" step="0.5" value="${p.weekly_volume ?? ""}" placeholder="如 50"/></label>
+            <label>是否有教练指导
+              <select id="pf_has_coach">
+                <option value="">未填写</option>
+                <option value="true" ${p.has_coach === true ? "selected" : ""}>有</option>
+                <option value="false" ${p.has_coach === false ? "selected" : ""}>无</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="profile-section" style="margin-top:16px">
+          <h3>目标信息</h3>
+          <div class="form-grid cols-3">
+            <label>目标项目
+              <select id="pf_goal_event">
+                <option value="">未选择</option>
+                <option value="800" ${p.goal_event === "800" ? "selected" : ""}>800 米</option>
+                <option value="1500" ${p.goal_event === "1500" ? "selected" : ""}>1500 米</option>
+                <option value="3000" ${p.goal_event === "3000" ? "selected" : ""}>3000 米</option>
+                <option value="5000" ${p.goal_event === "5000" ? "selected" : ""}>5000 米</option>
+              </select>
+            </label>
+            <label>目标成绩<input id="pf_goal_time" type="text" value="${escapeHtml(p.goal_time || "")}" placeholder="如 2:05 / 4:30 / 18:00"/></label>
+            <label>比赛日期<input id="pf_race_date" type="date" value="${p.race_date || ""}"/></label>
+          </div>
+        </div>
+
+        <button class="primary-button full" type="submit" id="profileSubmit">保存运动档案</button>
+        <p class="form-note">档案会保存到你的账户，并在能力分析时自动填充目标项目与目标成绩。</p>
+      </form>
+    </section>
+  `;
+
+  document.getElementById("profileForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("profileSubmit");
+    const profile = {
+      nickname: getFieldValue("pf_nickname").trim() || null,
+      age: Number(getFieldValue("pf_age")) || null,
+      gender: getFieldValue("pf_gender") || null,
+      height: Number(getFieldValue("pf_height")) || null,
+      weight: Number(getFieldValue("pf_weight")) || null,
+      main_event: getFieldValue("pf_main_event") || null,
+      training_years: Number(getFieldValue("pf_training_years")) || null,
+      sessions_per_week: Number(getFieldValue("pf_sessions")) || null,
+      weekly_volume: Number(getFieldValue("pf_weekly_volume")) || null,
+      has_coach: getFieldValue("pf_has_coach") === "" ? null : getFieldValue("pf_has_coach") === "true",
+      goal_event: getFieldValue("pf_goal_event") || null,
+      goal_time: getFieldValue("pf_goal_time").trim() || null,
+      race_date: getFieldValue("pf_race_date") || null,
+    };
+    btn.disabled = true;
+    btn.textContent = "保存中…";
+    try {
+      await saveProfile(user.id, profile);
+      showToast("档案已保存", "success");
+    } catch (err) {
+      showToast(err.message || "保存失败", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "保存运动档案";
+    }
+  });
+}
+
+/* ---- 成绩数据库页 ---- */
+async function renderPerformancePage(app, user) {
+  app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
+  await renderPerformanceList(app, user);
+}
+
+async function renderPerformanceList(app, user) {
+  let records = [];
+  try {
+    records = await listPerformances(user.id);
+  } catch (e) {
+    /* 忽略 */
+  }
+
+  const rows = records.length
+    ? records.map((r) => `
+        <tr>
+          <td class="col-event">${escapeHtml(r.event)} 米</td>
+          <td class="col-time">${escapeHtml(r.time_text || (r.time_seconds ? formatTime(r.time_seconds) : "—"))}</td>
+          <td class="col-date">${escapeHtml(r.record_date || "—")}</td>
+          <td class="col-date">${escapeHtml(r.note || "")}</td>
+          <td class="col-action"><button class="del-btn" data-id="${escapeHtml(r.id)}">删除</button></td>
+        </tr>
+      `).join("")
+    : `<tr class="empty-row"><td colspan="5">还没有成绩记录。在下方添加你的第一条成绩。</td></tr>`;
+
+  app.innerHTML = `
+    <section class="page">
+      <div class="page-head">
+        <p class="eyebrow">Performance</p>
+        <h2>我的成绩</h2>
+      </div>
+
+      <div class="perf-table-box" style="border-radius:18px;border:1px solid var(--line);overflow:hidden;background:#fff">
+        <table class="perf-table">
+          <thead><tr><th>项目</th><th>成绩</th><th>日期</th><th>备注</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+
+      <div class="form-card panel" style="box-shadow:none">
+        <div class="page-head"><h3 style="margin:0">添加成绩记录</h3></div>
+        <form id="perfForm">
+          <div class="form-grid cols-3">
+            <label>项目
+              <select id="pf_event">
+                <option value="400">400 米</option>
+                <option value="600">600 米</option>
+                <option value="800">800 米</option>
+                <option value="1500">1500 米</option>
+                <option value="3000">3000 米</option>
+                <option value="5000">5000 米</option>
+              </select>
+            </label>
+            <label>成绩<input id="pf_time_text" type="text" placeholder="如 2:05 / 4:30 / 18:00" required/></label>
+            <label>日期<input id="pf_date" type="date" value="${todayISO()}"/></label>
+          </div>
+          <label class="full-field" style="margin-top:14px">备注（选填）<input id="pf_note" type="text" placeholder="如 训练测试 / 正式比赛"/></label>
+          <button class="primary-button full" type="submit" id="perfSubmit">添加成绩</button>
+          <p class="form-note">成绩会保存到你的账户。能力分析页会自动读取最新成绩填充分析表单。</p>
+        </form>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("perfForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("perfSubmit");
+    const timeText = getFieldValue("pf_time_text").trim();
+    const seconds = parseTime(timeText);
+    if (!seconds) {
+      showToast("成绩格式不正确，支持秒数或 分:秒 格式", "error");
+      return;
+    }
+    const record = {
+      event: getFieldValue("pf_event"),
+      time_seconds: seconds,
+      time_text: timeText,
+      record_date: getFieldValue("pf_date") || null,
+      note: getFieldValue("pf_note").trim() || null,
+    };
+    btn.disabled = true;
+    btn.textContent = "添加中…";
+    try {
+      await addPerformance(user.id, record);
+      showToast("成绩已添加", "success");
+      await renderPerformanceList(app, user);
+    } catch (err) {
+      showToast(err.message || "添加失败", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "添加成绩";
+    }
+  });
+
+  document.querySelectorAll(".del-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-id");
+      try {
+        await deletePerformance(user.id, id);
+        showToast("已删除", "success");
+        await renderPerformanceList(app, user);
+      } catch (err) {
+        showToast(err.message || "删除失败", "error");
+      }
+    });
+  });
+}
+
+/* ---- 能力分析页 ---- */
+async function renderAnalysisPage(app, user) {
+  app.innerHTML = `
+    <section class="page">
+      <div class="page-head">
+        <p class="eyebrow">Step 1</p>
+        <h2>输入训练需求</h2>
+      </div>
+      <div class="analysis-layout">
+        <form id="planForm" class="form-card">
+          <div class="form-grid">
+            <label>目标项目
+              <select id="event" required>
+                <option value="800">800 米</option>
+                <option value="1500">1500 米</option>
+                <option value="3000">3000 米</option>
+                <option value="5000">5000 米</option>
+              </select>
+            </label>
+            <label>训练周期（周）<input id="weeks" type="number" min="4" max="24" value="12" required/></label>
+            <label>目标成绩<input id="goalTime" placeholder="如 2:05 / 4:30 / 18:00" required/></label>
+            <label>每周训练天数
+              <select id="daysPerWeek">
+                <option value="4">4 天</option>
+                <option value="5" selected>5 天</option>
+                <option value="6">6 天</option>
+              </select>
+            </label>
+            <label>年龄<input id="age" type="number" min="10" max="70" value="20"/></label>
+            <label>400m 当前成绩<input id="time400" placeholder="如 58"/></label>
+            <label>600m 当前成绩<input id="time600" placeholder="如 1:35"/></label>
+            <label>800m 当前成绩<input id="time800" placeholder="如 2:12"/></label>
+            <label>1500m 当前成绩<input id="time1500" placeholder="如 4:50"/></label>
+            <label>3000m 当前成绩<input id="time3000" placeholder="如 10:45"/></label>
+            <label>5000m 当前成绩<input id="time5000" placeholder="如 19:30"/></label>
+            <label>10km 当前成绩<input id="time10000" placeholder="如 42:00"/></label>
+            <label>力量能力自评
+              <select id="strength">
+                <option value="50">较弱</option>
+                <option value="65" selected>一般</option>
+                <option value="80">较好</option>
+                <option value="92">很好</option>
+              </select>
+            </label>
+            <label>最长轻松跑距离（km）<input id="longRun" type="number" min="3" max="30" value="8"/></label>
+            <label>恢复能力
+              <select id="recovery">
+                <option value="low">恢复慢</option>
+                <option value="normal" selected>正常</option>
+                <option value="high">恢复快</option>
+              </select>
+            </label>
+            <label>伤病风险
+              <select id="injuryRisk">
+                <option value="low" selected>低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+              </select>
+            </label>
+          </div>
+          <label class="full-field">进一步需求 / 近期反馈
+            <textarea id="additionalNeeds" rows="5" placeholder="例如：最近小腿有点紧，想降低强度；或者希望加强速度耐力和最后 300m 冲刺；也可以写时间比较紧、想少做力量、想增加有氧等。"></textarea>
+          </label>
+          <button class="primary-button full" type="submit">生成能力分析</button>
+          <p class="form-note">时间支持秒数或「分:秒」格式。${user ? "已登录，分析结果会自动保存到你的账户，并可在训练计划页查看。" : "登录后可保存分析结果与训练计划。"}</p>
+        </form>
+
+        <aside class="output-card" id="summary">
+          <div class="empty-state">
+            <h2>等待生成</h2>
+            <p>填写左侧信息后，这里会展示六维能力雷达图、运动员类型分类、目标需求对比、短板分析和训练权重调整。</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  `;
+
+  document.getElementById("planForm").addEventListener("submit", handleAnalysisSubmit);
+
+  if (user) {
+    prefillAnalysisForm(user);
+  }
+}
+
+async function prefillAnalysisForm(user) {
+  try {
+    const [profile, perfs] = await Promise.all([getProfile(user.id), listPerformances(user.id)]);
+    if (profile) {
+      const eventVal = profile.goal_event || profile.main_event;
+      if (eventVal) setFieldValue("event", String(eventVal));
+      if (profile.goal_time) setFieldValue("goalTime", profile.goal_time);
+      if (profile.age) setFieldValue("age", String(profile.age));
+      if (profile.sessions_per_week) setFieldValue("daysPerWeek", String(Math.min(6, Math.max(4, profile.sessions_per_week))));
+    }
+    const latestByEvent = {};
+    perfs.forEach((p) => { if (!latestByEvent[p.event]) latestByEvent[p.event] = p; });
+    const eventToField = { "400": "time400", "600": "time600", "800": "time800", "1500": "time1500", "3000": "time3000", "5000": "time5000", "10000": "time10000" };
+    Object.entries(latestByEvent).forEach(([ev, p]) => {
+      const field = eventToField[String(ev)];
+      if (field && p.time_text) setFieldValue(field, p.time_text);
+    });
+  } catch (e) {
+    /* 静默忽略预填失败 */
+  }
+}
+
+async function handleAnalysisSubmit(event) {
+  event.preventDefault();
+  const submitBtn = event.target.querySelector("button[type=submit]");
+  try {
+    const input = readInput();
+    const analysis = analyzeAthlete(input);
+    const phases = splitPhases(input.weeks);
+    const weeks = buildPlan(input, analysis, phases);
+
+    renderSummary(input, analysis);
+
+    if (currentUser) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "保存中…";
+      try {
+        await saveAnalysis(currentUser.id, input, analysis, phases, weeks);
+        showToast("分析已保存到你的账户", "success");
+      } catch (err) {
+        showToast("分析已生成，但保存失败：" + (err.message || err), "error");
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "生成能力分析";
+      }
+    } else {
+      showToast("分析已生成（登录后可保存）", "success");
+    }
+  } catch (err) {
+    showToast(err.message || "生成失败", "error");
+  }
+}
+
+/* ---- 训练计划页 ---- */
+async function renderPlanPage(app, user) {
+  app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
+
+  let snap = null;
+  try {
+    snap = await getLatestAnalysis(user.id);
+  } catch (e) {
+    /* 忽略 */
+  }
+
+  if (!snap) {
+    app.innerHTML = `
+      <section class="guard">
+        <h2>暂无训练计划</h2>
+        <p>先生成一次能力分析，系统会自动保存训练计划，然后回到本页查看完整周期安排。</p>
+        <a class="primary-button" href="#/analysis">去能力分析</a>
+      </section>`;
+    return;
+  }
+
+  const input = snap.input_json || {};
+  const analysis = snap.analysis_json || {};
+  const phases = snap.phases_json || [];
+  const weeks = snap.plan_json || [];
+  const label = snap.label || (input.model?.name || "");
+
+  app.innerHTML = `
+    <section class="page">
+      <div class="page-head">
+        <p class="eyebrow">Step 2</p>
+        <h2>周期训练计划</h2>
+        <p class="form-note">${escapeHtml(label)} · 生成于 ${escapeHtml(snap.created_at ? new Date(snap.created_at).toLocaleString("zh-CN") : "—")}</p>
+      </div>
+      <div id="phaseTimeline" class="timeline"></div>
+      <div id="weeklyPlan" class="week-grid"></div>
+    </section>
+  `;
+
+  if (phases.length) renderTimeline(phases);
+  else document.getElementById("phaseTimeline").innerHTML = "";
+
+  if (weeks.length) renderPlan(weeks);
+  else document.getElementById("weeklyPlan").innerHTML = `<div class="guard"><p>该次分析未保存训练计划，请重新生成。</p></div>`;
+}
+
+/* ===================== 10. 启动引导 ===================== */
+
+function bootstrap() {
+  initSupabase();
+
+  if (isSupabaseReady()) {
+    const client = supabaseClient;
+    client.auth.onAuthStateChange((_event, session) => {
+      currentUser = session?.user || null;
+      renderNavAuth();
+      router();
+    });
+    // 首次手动获取会话，避免某些环境下 onAuthStateChange 延迟
+    client.auth.getSession().then(({ data }) => {
+      currentUser = data.session?.user || null;
+      renderNavAuth();
+      router();
+    });
+  } else {
+    currentUser = null;
+    renderNavAuth();
+    router();
+  }
+
+  window.addEventListener("hashchange", router);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bootstrap);
+} else {
+  bootstrap();
 }

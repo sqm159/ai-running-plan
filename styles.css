@@ -36,82 +36,16 @@ a {
   text-decoration: none;
 }
 
-.hero {
-  min-height: 620px;
-  padding: 28px min(6vw, 72px) 64px;
-}
-
-.nav,
-.hero-grid,
-main,
-footer {
-  width: min(1180px, calc(100vw - 36px));
-  margin: 0 auto;
-}
-
-.nav {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 78px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-}
-
-.brand-mark {
-  display: inline-grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 15px;
-  background: var(--ink);
-  color: var(--lime);
-  font-size: 14px;
-}
-
-.nav-link,
-.secondary-button {
-  border: 1px solid rgba(23, 33, 27, 0.14);
-  border-radius: 999px;
-  padding: 12px 18px;
-  background: rgba(255, 255, 255, 0.62);
-}
-
-.hero-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(330px, 0.58fr);
-  gap: 42px;
-  align-items: center;
-}
-
-.eyebrow {
-  margin: 0 0 12px;
-  color: var(--green);
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-h1,
-h2,
-h3,
-p {
+h1, h2, h3, h4, h5, p {
   margin-top: 0;
 }
 
 h1 {
   max-width: 780px;
   margin-bottom: 22px;
-  font-size: clamp(42px, 7vw, 82px);
-  line-height: 0.98;
-  letter-spacing: -0.06em;
+  font-size: clamp(36px, 6vw, 68px);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
 }
 
 h2 {
@@ -120,25 +54,117 @@ h2 {
   letter-spacing: -0.04em;
 }
 
-h3 {
-  margin-bottom: 10px;
+h3 { margin-bottom: 10px; }
+
+/* =========================================================================
+   顶部导航栏（多页面 V1.0）
+   ========================================================================= */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
 }
 
-.hero-copy {
-  max-width: 660px;
-  color: var(--muted);
-  font-size: 18px;
-  line-height: 1.75;
-}
-
-.hero-actions,
-.actions {
+.nav {
+  width: min(1180px, calc(100vw - 36px));
+  margin: 0 auto;
   display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
+  justify-content: space-between;
   align-items: center;
+  gap: 16px;
+  padding: 12px 0;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  background: var(--ink);
+  color: var(--lime);
+  font-size: 13px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  margin-left: 24px;
+}
+
+.nav-links a {
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.nav-links a:hover {
+  background: #eef5ef;
+  color: var(--green-dark);
+}
+
+.nav-links a.active {
+  background: var(--green);
+  color: white;
+}
+
+.nav-auth {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.nav-user {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.nav-user strong {
+  color: var(--ink);
+}
+
+/* =========================================================================
+   应用根容器 / 页面容器
+   ========================================================================= */
+.app-root {
+  width: min(1180px, calc(100vw - 36px));
+  margin: 0 auto;
+  display: grid;
+  gap: 24px;
+  padding: 28px 0 64px;
+}
+
+.page {
+  display: grid;
+  gap: 22px;
+}
+
+.page-head .eyebrow {
+  margin: 0 0 8px;
+}
+
+/* =========================================================================
+   按钮
+   ========================================================================= */
 .primary-button {
   display: inline-flex;
   align-items: center;
@@ -165,6 +191,61 @@ h3 {
   padding: 16px 22px;
 }
 
+.primary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.secondary-button,
+.ghost-button,
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 11px 18px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.secondary-button {
+  border: 1px solid rgba(23, 33, 27, 0.14);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--ink);
+}
+
+.secondary-button:hover {
+  background: white;
+  border-color: rgba(23, 33, 27, 0.22);
+}
+
+.ghost-button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+}
+
+.ghost-button:hover {
+  background: #f3f6f4;
+  color: var(--ink);
+}
+
+.danger-button {
+  border: 1px solid rgba(196, 82, 70, 0.3);
+  background: #fbf1ef;
+  color: var(--red);
+}
+
+.danger-button:hover {
+  background: #f6e6e3;
+}
+
+/* =========================================================================
+   面板 / 卡片（沿用既有风格）
+   ========================================================================= */
 .hero-card,
 .form-card,
 .output-card,
@@ -178,11 +259,17 @@ h3 {
   box-shadow: var(--shadow);
 }
 
-.hero-card {
-  display: grid;
-  gap: 16px;
-  padding: 24px;
-  backdrop-filter: blur(14px);
+.panel {
+  padding: clamp(20px, 4vw, 34px);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .metric {
@@ -202,24 +289,9 @@ h3 {
   line-height: 1.55;
 }
 
-main {
-  display: grid;
-  gap: 24px;
-  padding-bottom: 64px;
-}
-
-.panel {
-  padding: clamp(20px, 4vw, 34px);
-}
-
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.72fr);
-  gap: 22px;
-  align-items: start;
-  background: rgba(255, 255, 255, 0.54);
-}
-
+/* =========================================================================
+   表单（auth / profile / analysis 共用）
+   ========================================================================= */
 .form-card,
 .output-card {
   box-shadow: none;
@@ -230,6 +302,10 @@ main {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.form-grid.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 label {
@@ -267,25 +343,291 @@ textarea {
 }
 
 .full-field {
-  margin-top: 16px;
-}
-
-.form-note,
-.empty-state p,
-.model-grid p,
-footer {
-  color: var(--muted);
-  line-height: 1.7;
+  grid-column: 1 / -1;
+  margin-top: 4px;
 }
 
 .form-note {
   margin: 14px 0 0;
   font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+/* =========================================================================
+   首页 Dashboard / Landing
+   ========================================================================= */
+.hero {
+  padding: 8px 0 12px;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.58fr);
+  gap: 42px;
+  align-items: center;
+}
+
+.hero-copy {
+  max-width: 660px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.75;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 22px;
+}
+
+.hero-card {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  backdrop-filter: blur(14px);
+}
+
+/* Dashboard 状态卡片网格 */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.status-card {
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 22px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 24px rgba(22, 42, 30, 0.06);
+}
+
+.status-card .label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.status-card .value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--green-dark);
+  line-height: 1.3;
+}
+
+.status-card .sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.quick-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* =========================================================================
+   认证页（登录/注册）
+   ========================================================================= */
+.auth-wrap {
+  display: grid;
+  place-content: center;
+  min-height: 60vh;
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  margin: 0 auto;
+  border: 1px solid rgba(23, 33, 27, 0.08);
+  border-radius: 28px;
+  padding: clamp(24px, 4vw, 36px);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 22px;
+  padding: 5px;
+  border-radius: 999px;
+  background: #eef5ef;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.auth-tab.active {
+  background: white;
+  color: var(--green-dark);
+  box-shadow: 0 4px 12px rgba(22, 42, 30, 0.08);
+}
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.config-warn {
+  border: 1px solid rgba(214, 122, 44, 0.3);
+  border-radius: 18px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #fff7f0, #fef0e8);
+  font-size: 14px;
+  line-height: 1.7;
+  color: #8a4a1e;
+}
+
+.config-warn strong {
+  color: #b5601e;
+}
+
+.config-warn code {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(214, 122, 44, 0.2);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* =========================================================================
+   运动档案页
+   ========================================================================= */
+.profile-section {
+  border: 1px solid rgba(23, 33, 27, 0.06);
+  border-radius: 22px;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.profile-section h3 {
+  margin-bottom: 14px;
+  color: var(--green-dark);
+  font-size: 16px;
+}
+
+/* =========================================================================
+   成绩数据库页
+   ========================================================================= */
+.perf-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.perf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: white;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.perf-table th,
+.perf-table td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.perf-table th {
+  background: #f3f6f4;
+  color: var(--muted);
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.perf-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.perf-table .col-event {
+  font-weight: 800;
+  color: var(--green-dark);
+  white-space: nowrap;
+}
+
+.perf-table .col-time {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.perf-table .col-date {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.perf-table .col-action {
+  text-align: right;
+}
+
+.perf-table .del-btn {
+  border: 0;
+  background: transparent;
+  color: var(--red);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+
+.perf-table .del-btn:hover {
+  background: #fbf1ef;
+}
+
+.empty-row td {
+  text-align: center;
+  color: var(--muted);
+  padding: 32px;
+}
+
+/* =========================================================================
+   能力分析页（沿用既有渲染）
+   ========================================================================= */
+.analysis-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.72fr);
+  gap: 22px;
+  align-items: start;
 }
 
 .output-card {
   position: sticky;
-  top: 16px;
+  top: 96px;
 }
 
 .empty-state {
@@ -295,34 +637,293 @@ footer {
   text-align: center;
 }
 
-.score-list {
-  display: grid;
-  gap: 12px;
-  margin: 20px 0;
+.empty-state p {
+  color: var(--muted);
+  line-height: 1.7;
 }
 
-.score-row {
-  display: grid;
-  grid-template-columns: 88px 1fr 46px;
-  gap: 10px;
+/* 雷达图 */
+.radar-section {
+  margin: 20px 0;
+  text-align: center;
+}
+
+.radar-canvas {
+  max-width: 100%;
+  height: auto;
+  border-radius: 18px;
+  background: #f9fcf9;
+}
+
+.radar-legend {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.radar-legend span {
+  display: flex;
   align-items: center;
+  gap: 6px;
+}
+
+.radar-legend .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.dot-current { background: var(--green); }
+.dot-target { background: var(--orange); }
+
+/* 运动员类型徽章 */
+.athlete-type-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  border-radius: 18px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #f0f8f3, #e8f5ec);
+}
+
+.athlete-type-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.badge-speed { background: var(--orange); color: white; }
+.badge-endurance { background: var(--blue); color: white; }
+.badge-balanced { background: var(--green); color: white; }
+
+.athlete-type-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #405046;
+}
+
+/* 能力评估表 */
+.demand-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+
+.demand-table th,
+.demand-table td {
+  padding: 8px 10px;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.demand-table th {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.demand-table .surplus { color: var(--green); font-weight: 700; }
+.demand-table .deficit { color: var(--red); font-weight: 700; }
+.demand-table .balanced { color: var(--muted); }
+.demand-table .gap-advantage { color: var(--green-dark); font-weight: 700; }
+.demand-table .gap-matched { color: var(--muted); font-weight: 600; }
+.demand-table .gap-deficit { color: var(--red); font-weight: 700; }
+
+/* 能力画像定性标签 */
+.ability-profile {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 8px 0 4px;
+}
+
+.profile-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+
+.profile-item .profile-label {
+  font-weight: 700;
+  color: #2a3a30;
+}
+
+.profile-item .profile-value {
+  font-weight: 800;
   font-size: 14px;
 }
 
-.bar {
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #edf2ee;
+.qual-excellent { background: #e8f7ed; border-color: rgba(31,122,76,0.2); }
+.qual-excellent .profile-value { color: var(--green-dark); }
+.qual-good { background: #f4f5f0; border-color: rgba(100,112,103,0.15); }
+.qual-good .profile-value { color: var(--muted); }
+.qual-deficit { background: #fef0ee; border-color: rgba(196,82,70,0.2); }
+.qual-deficit .profile-value { color: var(--red); }
+
+/* 教练建议 */
+.coach-advice-box {
+  margin: 16px 0;
+  border-radius: 18px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #eef7f2, #e0f0e8);
+  border: 1px solid rgba(31, 122, 76, 0.15);
 }
 
-.bar span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--green), var(--lime));
+.coach-advice-box h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--green-dark);
 }
 
+.coach-advice-box p {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #2a3a30;
+}
+
+.coach-advice-box strong {
+  color: var(--green-dark);
+}
+
+/* 配速表 */
+.pace-table-box {
+  margin: 10px 0 16px;
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #f6fbff, #eef5fc);
+  border: 1px solid rgba(49, 95, 147, 0.12);
+}
+
+.pace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pace-table th,
+.pace-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(49, 95, 147, 0.08);
+}
+
+.pace-table th {
+  color: var(--muted);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pace-table .pace-label { font-weight: 700; color: var(--blue); white-space: nowrap; }
+.pace-table .pace-value { font-weight: 800; color: var(--ink); font-size: 14px; white-space: nowrap; }
+.pace-table .pace-desc { color: var(--muted); line-height: 1.5; }
+.pace-table .pace-desc small { color: #8a9690; font-size: 11px; }
+.pace-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+/* 短板分析 */
+.weakness-box {
+  margin: 16px 0;
+  border-radius: 18px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #fff7f0, #fef0e8);
+  border: 1px solid rgba(214, 122, 44, 0.12);
+}
+
+.weakness-box h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: #b5601e;
+}
+
+.weakness-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(214, 122, 44, 0.08);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.weakness-item:last-child { border-bottom: 0; }
+.weakness-item .wk-label { color: var(--muted); font-weight: 700; white-space: nowrap; }
+.weakness-item .wk-value { color: #3a4a3f; }
+
+/* 训练权重调整 */
+.weight-box {
+  margin: 16px 0;
+  border-radius: 18px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #f3f7fc, #e8f0fa);
+  border: 1px solid rgba(49, 95, 147, 0.12);
+}
+
+.weight-box h4 { margin: 0 0 12px; font-size: 15px; color: var(--blue); }
+
+.weight-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.weight-col h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #2a3a30;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.weight-bar-item {
+  display: grid;
+  grid-template-columns: 70px 1fr 36px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.weight-bar-item .wb-label { color: #1a2a1e; font-weight: 700; }
+.weight-bar-item .wb-bar { height: 8px; border-radius: 999px; background: #e8eef5; overflow: hidden; }
+.weight-bar-item .wb-bar span { display: block; height: 100%; border-radius: inherit; transition: width 0.4s ease; }
+.wb-default span { background: #7a9bc0; }
+.wb-adjusted span { background: #315f93; }
+.weight-bar-item .wb-value { text-align: right; font-weight: 800; color: #1a2a1e; }
+
+/* 动态调整提示 */
+.adjustment-box {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+  border: 1px solid rgba(31, 122, 76, 0.14);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #f7fcf6, #eef8ef);
+}
+
+.adjustment-box strong { color: var(--green-dark); }
+.adjustment-box p { margin: 0; color: #405046; font-size: 13px; line-height: 1.6; }
+
+/* 标签 pill */
 .pill-list {
   display: flex;
   flex-wrap: wrap;
@@ -348,27 +949,9 @@ footer {
   line-height: 1.65;
 }
 
-.adjustment-box {
-  display: grid;
-  gap: 8px;
-  margin: 16px 0;
-  border: 1px solid rgba(31, 122, 76, 0.14);
-  border-radius: 18px;
-  padding: 14px 16px;
-  background: linear-gradient(180deg, #f7fcf6, #eef8ef);
-}
-
-.adjustment-box strong {
-  color: var(--green-dark);
-}
-
-.adjustment-box p {
-  margin: 0;
-  color: #405046;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
+/* =========================================================================
+   训练计划页
+   ========================================================================= */
 .timeline {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -412,9 +995,7 @@ footer {
   margin-bottom: 12px;
 }
 
-.week-head small {
-  color: var(--muted);
-}
+.week-head small { color: var(--muted); }
 
 .day-list {
   display: grid;
@@ -432,16 +1013,12 @@ footer {
   background: #f8fbf8;
 }
 
-.day-list strong {
-  color: var(--green-dark);
-}
+.day-list strong { color: var(--green-dark); }
+.day-list span { color: var(--muted); font-size: 13px; line-height: 1.5; }
 
-.day-list span {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
+/* =========================================================================
+   模型 / 科学依据 / 公式（首页教育区）
+   ========================================================================= */
 .model-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -453,347 +1030,12 @@ footer {
   padding: 20px;
 }
 
-footer {
-  padding: 0 0 40px;
-  text-align: center;
-  font-size: 14px;
-}
-
-/* === Radar Chart === */
-.radar-section {
-  margin: 20px 0;
-  text-align: center;
-}
-
-.radar-canvas {
-  max-width: 100%;
-  height: auto;
-  border-radius: 18px;
-  background: #f9fcf9;
-}
-
-.radar-legend {
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  margin-top: 12px;
-  font-size: 13px;
-}
-
-.radar-legend span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.radar-legend .dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-}
-
-.dot-current { background: var(--green); }
-.dot-target { background: var(--orange); }
-
-/* === Athlete Type Badge === */
-.athlete-type-box {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 16px 0;
-  border-radius: 18px;
-  padding: 14px 18px;
-  background: linear-gradient(135deg, #f0f8f3, #e8f5ec);
-}
-
-.athlete-type-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 16px;
-  border-radius: 999px;
-  font-size: 16px;
-  font-weight: 800;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.badge-speed { background: var(--orange); color: white; }
-.badge-endurance { background: var(--blue); color: white; }
-.badge-balanced { background: var(--green); color: white; }
-
-.athlete-type-desc {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #405046;
-}
-
-/* === Target Demand Table === */
-.demand-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 16px 0;
-  font-size: 13px;
-}
-
-.demand-table th,
-.demand-table td {
-  padding: 8px 10px;
-  text-align: center;
-  border-bottom: 1px solid var(--line);
-}
-
-.demand-table th {
+.model-grid p {
   color: var(--muted);
-  font-weight: 700;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.demand-table .surplus { color: var(--green); font-weight: 700; }
-.demand-table .deficit { color: var(--red); font-weight: 700; }
-.demand-table .balanced { color: var(--muted); }
-
-/* === Pace Table === */
-.pace-table-box {
-  margin: 10px 0 16px;
-  border-radius: 18px;
-  padding: 14px 16px;
-  background: linear-gradient(180deg, #f6fbff, #eef5fc);
-  border: 1px solid rgba(49, 95, 147, 0.12);
-}
-
-.pace-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.pace-table th,
-.pace-table td {
-  padding: 8px 10px;
-  text-align: left;
-  border-bottom: 1px solid rgba(49, 95, 147, 0.08);
-}
-
-.pace-table th {
-  color: var(--muted);
-  font-weight: 700;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.pace-table .pace-label {
-  font-weight: 700;
-  color: var(--blue);
-  white-space: nowrap;
-}
-
-.pace-table .pace-value {
-  font-weight: 800;
-  color: var(--ink);
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.pace-table .pace-desc {
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.pace-table .pace-desc small {
-  color: #8a9690;
-  font-size: 11px;
-}
-
-.pace-note {
-  margin: 10px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-/* === Weakness Analysis === */
-.weakness-box {
-  margin: 16px 0;
-  border-radius: 18px;
-  padding: 16px 18px;
-  background: linear-gradient(180deg, #fff7f0, #fef0e8);
-  border: 1px solid rgba(214, 122, 44, 0.12);
-}
-
-.weakness-box h4 {
-  margin: 0 0 10px;
-  font-size: 15px;
-  color: #b5601e;
-}
-
-.weakness-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(214, 122, 44, 0.08);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.weakness-item:last-child { border-bottom: 0; }
-
-.weakness-item .wk-label {
-  color: var(--muted);
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.weakness-item .wk-value { color: #3a4a3f; }
-
-/* === Weight Adjustment === */
-.weight-box {
-  margin: 16px 0;
-  border-radius: 18px;
-  padding: 16px 18px;
-  background: linear-gradient(180deg, #f3f7fc, #e8f0fa);
-  border: 1px solid rgba(49, 95, 147, 0.12);
-}
-
-.weight-box h4 {
-  margin: 0 0 12px;
-  font-size: 15px;
-  color: var(--blue);
-}
-
-.weight-comparison {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.weight-col h5 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  color: #2a3a30;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.weight-bar-item {
-  display: grid;
-  grid-template-columns: 70px 1fr 36px;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 6px;
-  font-size: 13px;
-}
-
-.weight-bar-item .wb-label {
-  color: #1a2a1e;
-  font-weight: 700;
-}
-
-.weight-bar-item .wb-bar {
-  height: 8px;
-  border-radius: 999px;
-  background: #e8eef5;
-  overflow: hidden;
-}
-
-.weight-bar-item .wb-bar span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  transition: width 0.4s ease;
-}
-
-.wb-default span { background: #7a9bc0; }
-.wb-adjusted span { background: #315f93; }
-
-.weight-bar-item .wb-value {
-  text-align: right;
-  font-weight: 800;
-  color: #1a2a1e;
-}
-
-/* === V2.1 Ability Profile (定性标签) === */
-.ability-profile {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin: 8px 0 4px;
-}
-
-.profile-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  border-radius: 14px;
-  font-size: 13px;
-  border: 1px solid transparent;
-}
-
-.profile-item .profile-label {
-  font-weight: 700;
-  color: #2a3a30;
-}
-
-.profile-item .profile-value {
-  font-weight: 800;
-  font-size: 14px;
-}
-
-.qual-excellent { background: #e8f7ed; border-color: rgba(31,122,76,0.2); }
-.qual-excellent .profile-value { color: var(--green-dark); }
-
-.qual-sufficient { background: #f0f7ed; border-color: rgba(107,142,35,0.18); }
-.qual-sufficient .profile-value { color: #5a7a2a; }
-
-.qual-good { background: #f4f5f0; border-color: rgba(100,112,103,0.15); }
-.qual-good .profile-value { color: var(--muted); }
-
-.qual-improve { background: #fff5f0; border-color: rgba(214,122,44,0.18); }
-.qual-improve .profile-value { color: #b5601e; }
-
-.qual-deficit { background: #fef0ee; border-color: rgba(196,82,70,0.2); }
-.qual-deficit .profile-value { color: var(--red); }
-
-/* === V2.1 Gap Level Colors (表格差距等级) === */
-.demand-table .gap-advantage { color: var(--green-dark); font-weight: 700; }
-.demand-table .gap-sufficient { color: var(--green); font-weight: 700; }
-.demand-table .gap-matched { color: var(--muted); font-weight: 600; }
-.demand-table .gap-insufficient { color: var(--orange); font-weight: 700; }
-.demand-table .gap-deficit { color: var(--red); font-weight: 700; }
-
-/* === V2.1 Coach Advice Box === */
-.coach-advice-box {
-  margin: 16px 0;
-  border-radius: 18px;
-  padding: 16px 18px;
-  background: linear-gradient(180deg, #eef7f2, #e0f0e8);
-  border: 1px solid rgba(31, 122, 76, 0.15);
-}
-
-.coach-advice-box h4 {
-  margin: 0 0 10px;
-  font-size: 15px;
-  color: var(--green-dark);
-}
-
-.coach-advice-box p {
-  margin: 6px 0;
-  font-size: 14px;
   line-height: 1.7;
-  color: #2a3a30;
+  font-size: 13px;
 }
 
-.coach-advice-box strong {
-  color: var(--green-dark);
-}
-
-/* === Science Grid === */
 .science-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -807,34 +1049,11 @@ footer {
   background: rgba(255, 255, 255, 0.7);
 }
 
-.science-card h3 {
-  margin-bottom: 8px;
-  color: var(--green-dark);
-}
+.science-card h3 { margin-bottom: 8px; color: var(--green-dark); }
+.science-desc { font-size: 13px; line-height: 1.7; color: var(--muted); margin-bottom: 12px; }
+.science-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.science-tags span { padding: 4px 10px; border-radius: 999px; background: #edf5ee; color: var(--green-dark); font-size: 11px; font-weight: 700; }
 
-.science-desc {
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-
-.science-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.science-tags span {
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #edf5ee;
-  color: var(--green-dark);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-/* === Formula Grid === */
 .formula-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -848,33 +1067,83 @@ footer {
   background: rgba(255, 255, 255, 0.7);
 }
 
-.formula-card h4 {
-  margin: 0 0 8px;
+.formula-card h4 { margin: 0 0 8px; font-size: 14px; color: var(--green-dark); }
+.formula-card code { display: block; margin-bottom: 8px; padding: 8px 10px; border-radius: 10px; background: #f0f5f1; font-size: 11px; color: var(--ink); line-height: 1.5; overflow-x: auto; }
+.formula-card p { font-size: 12px; line-height: 1.6; color: var(--muted); }
+
+/* =========================================================================
+   通用：Toast / Loading / Guard
+   ========================================================================= */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: white;
   font-size: 14px;
-  color: var(--green-dark);
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  animation: toast-in 0.2s ease;
 }
 
-.formula-card code {
-  display: block;
-  margin-bottom: 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: #f0f5f1;
-  font-size: 11px;
-  color: var(--ink);
-  line-height: 1.5;
-  overflow-x: auto;
+.toast.toast-error { background: var(--red); }
+.toast.toast-success { background: var(--green); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-.formula-card p {
-  font-size: 12px;
-  line-height: 1.6;
+.loading {
+  display: grid;
+  place-content: center;
+  padding: 60px 0;
   color: var(--muted);
+  font-size: 14px;
 }
 
+.loading::after {
+  content: "";
+  display: block;
+  width: 28px;
+  height: 28px;
+  margin: 12px auto 0;
+  border: 3px solid #dce5df;
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.guard {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.guard h2 { margin-bottom: 12px; }
+.guard p { color: var(--muted); margin-bottom: 22px; line-height: 1.7; }
+
+.site-footer {
+  width: min(1180px, calc(100vw - 36px));
+  margin: 0 auto;
+  padding: 0 0 40px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+/* =========================================================================
+   响应式
+   ========================================================================= */
 @media (max-width: 980px) {
   .hero-grid,
-  .layout,
+  .analysis-layout,
   .timeline,
   .week-grid,
   .model-grid,
@@ -884,31 +1153,31 @@ footer {
     grid-template-columns: 1fr;
   }
 
-  .nav {
-    margin-bottom: 44px;
-  }
-
   .output-card {
     position: static;
   }
+
+  .nav-links {
+    margin-left: 12px;
+    overflow-x: auto;
+  }
 }
 
-@media (max-width: 640px) {
-  .hero {
-    padding-top: 18px;
-  }
-
+@media (max-width: 720px) {
   .nav {
-    align-items: flex-start;
-    gap: 14px;
-    flex-direction: column;
+    flex-wrap: wrap;
   }
 
-  .form-grid {
+  .nav-links {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .form-grid,
+  .form-grid.cols-3 {
     grid-template-columns: 1fr;
   }
 
-  h1 {
-    font-size: 44px;
-  }
+  h1 { font-size: 38px; }
 }
