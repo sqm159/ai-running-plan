@@ -1038,14 +1038,24 @@ function pickEmphasis(input, analysis, phase) {
   const avoidKeys = input.adjustment?.avoidKeys || [];
   const removeAvoided = (keys) => keys.filter((key) => !avoidKeys.includes(key));
 
-  const adjustedWeights = analysis.weightResult?.adjusted || input.model.weights;
-  const sortedByWeight = Object.keys(adjustedWeights)
-    .filter((k) => k !== "strength")
-    .sort((a, b) => (adjustedWeights[b] || 0) - (adjustedWeights[a] || 0));
+  // V2.3：按能力差距排序（差距最大的最优先），排除已经是优势的维度（gap >= 10）
+  const gaps = {};
+  SIX_DIMENSIONS.forEach((k) => {
+    gaps[k] = analysis.scores[k] != null && analysis.goalDemands[k] != null
+      ? analysis.scores[k] - analysis.goalDemands[k] : -999;
+  });
 
-  if (phase.id === "base") return removeAvoided([...new Set([...requestedFocus, "aerobic", "strength", analysis.weakKeys[0]])]).slice(0, 3);
-  if (phase.id === "taper") return removeAvoided([...new Set([...requestedFocus, "speed", analysis.weakKeys[0], "aerobic"])]).slice(0, 3);
-  return removeAvoided([...new Set([...requestedFocus, ...sortedByWeight.slice(0, 2), analysis.weakKeys[0]])]).slice(0, 3);
+  const sortedByGap = SIX_DIMENSIONS
+    .filter((k) => gaps[k] < 10) // 排除优势维度
+    .sort((a, b) => gaps[a] - gaps[b]); // 差距最大的（最负）排在最前
+
+  // V2.3：短板优先！gap 排序结果放在 requestedFocus 之前
+  // 用户输入的 focus 仅用于填补剩余位置，且如果该维度是优势（gap >= 0）则不优先放入
+  const validFocus = requestedFocus.filter((k) => gaps[k] < 0);
+
+  if (phase.id === "base") return removeAvoided([...new Set([...sortedByGap.slice(0, 2), ...validFocus, "aerobic", "strength"])]).slice(0, 3);
+  if (phase.id === "taper") return removeAvoided([...new Set([...sortedByGap.slice(0, 1), ...validFocus, "speed", "aerobic"])]).slice(0, 3);
+  return removeAvoided([...new Set([...sortedByGap.slice(0, 3), ...validFocus])]).slice(0, 3);
 }
 
 function buildWeekDays(input, analysis, phase, load, weekNo) {
@@ -1144,6 +1154,7 @@ function buildPaceHintForType(input, analysis, trainingType) {
   const t1500 = est[1500];
   const t3000 = est[3000];
   const t5000 = est[5000];
+  const t10000 = est[10000];
 
   const per100 = (time, dist) => (time && dist ? time / (dist / 100) : null);
   const perKm = (time, dist) => (time && dist ? time / (dist / 1000) : null);
@@ -1175,8 +1186,40 @@ function buildPaceHintForType(input, analysis, trainingType) {
       return easyPerKm ? `配速：${fmt(easyPerKm)}/km（轻松跑，RPE 4-5）。` : "";
     case "recovery":
       return easyPerKm ? `配速：${fmt(easyPerKm + 15)}/km（恢复跑，RPE 3）。` : "";
-    case "eventSpecific":
-      return racePer100 ? `配速：${fmt(racePer100)}/100m（${event}m 比赛配速），长段落按比赛节奏，短段落可略快。` : "";
+    case "eventSpecific": {
+      // V2.3：根据专项距离动态选择配速参考
+      // 原则：长段落用比专项更长的距离配速（更慢），短段落用比专项更短的距离配速（更快）
+      // 这样长段落控速积累，短段落提速刺激，避免所有段落都按比赛节奏跑
+      let longPace = null, longLabel = "";
+      let midPace = null, midLabel = "";
+      let shortPace = null, shortLabel = "";
+
+      if (event === 800) {
+        // 800m 专项：长段落用 1500m 配速，短段落用 400m 配速
+        if (t1500) { longPace = per100(t1500, 1500); longLabel = "1500m 节奏"; }
+        if (t400) { shortPace = per100(t400, 400); shortLabel = "400m 速度"; }
+      } else if (event === 1500) {
+        // 1500m 专项：长段落用 3000m 配速，短段落用 800m 配速
+        if (t3000) { longPace = per100(t3000, 3000); longLabel = "3000m 节奏"; }
+        if (t800) { shortPace = per100(t800, 800); shortLabel = "800m 速度"; }
+      } else if (event === 3000) {
+        // 3000m 专项：长段落用 5000m 配速，短段落用 1500m 配速
+        if (t5000) { longPace = per100(t5000, 5000); longLabel = "5000m 节奏"; }
+        if (t1500) { shortPace = per100(t1500, 1500); shortLabel = "1500m 速度"; }
+      } else if (event === 5000) {
+        // 5000m 专项：长段落用 10000m 配速，短段落用 3000m 配速
+        if (t10000) { longPace = per100(t10000, 10000); longLabel = "10km 节奏"; }
+        else if (t5000) { longPace = perKm(t5000, 5000) * 1.06 / 10; longLabel = "阈值节奏"; }
+        if (t3000) { shortPace = per100(t3000, 3000); shortLabel = "3000m 速度"; }
+      }
+
+      const parts = [];
+      if (longPace) parts.push(`长段落（≥1000m）${fmt(longPace)}/100m（${longLabel}，控速积累）`);
+      if (midPace) parts.push(`中段落（600-800m）${fmt(midPace)}/100m（${midLabel}）`);
+      if (racePer100) parts.push(`专项段落 ${fmt(racePer100)}/100m（${event}m 比赛节奏）`);
+      if (shortPace) parts.push(`短段落（≤400m）${fmt(shortPace)}/100m（${shortLabel}，提速刺激）`);
+      return parts.length ? `配速参考：${parts.join("；")}。长段落控速积累，短段落提速刺激，不要全部按比赛节奏跑。` : "";
+    }
     case "strength":
       return "";
     default:
