@@ -159,7 +159,7 @@ const WEAKNESS_RULES = [
     type: (event) => `${event}米乳酸耐受短板`,
     factor: "末段乳酸能力不足",
     adjustment: "乳酸耐受训练 +15%，增加 500-600m 高强度段落",
-    weightShift: { from: null, to: "speedEndurance", amount: 8 },
+    weightShift: { from: null, to: "lactate", amount: 8 },
   },
   {
     id: "vo2max_deficit",
@@ -1056,20 +1056,30 @@ function buildWeekDays(input, analysis, phase, load, weekNo) {
   const hasProtectionNeed = input.adjustment?.intensity?.includes("降低") || input.adjustment?.intensity?.includes("保护");
   const longRunDistance = Math.min(input.model.longRunCap, Math.max(hasProtectionNeed ? 4 : 5, input.longRun * load)).toFixed(1);
   const easyMinutes = Math.round((30 + input.daysPerWeek * 4) * load);
-  const paceHint = buildPaceHint(input.goalTime, input.event);
   const modifier = input.adjustment?.sessionModifier ? ` ${input.adjustment.sessionModifier}` : "";
   const specialWorkout = getEventSpecialWorkout(input.event, phase.id, weekNo);
   const qualityDayTitle = specialWorkout ? `${input.model.name} 专项刺激` : LABELS[secondary];
-  const qualityDayDetail = specialWorkout || `${getWorkout(phase.id, secondary, weekNo, 2)}。${modifier}`;
+
+  // V2.2：为每个训练日生成对应的配速提示
+  const paceFor = (type) => buildPaceHintForType(input, analysis, type);
+  const paceHintPrimary = paceFor(primary);
+  const paceHintSecondary = paceFor(specialWorkout ? "eventSpecific" : secondary);
+  const paceHintTertiary = paceFor(tertiary);
+  const paceHintRecovery = paceFor("recovery");
+  const paceHintAerobic = paceFor("aerobic");
+
+  const qualityDayDetail = specialWorkout
+    ? `${specialWorkout} ${paceHintSecondary}`
+    : `${getWorkout(phase.id, secondary, weekNo, 2)}。${paceHintSecondary}${modifier}`;
 
   const fullWeek = [
-    day("周一", "恢复与灵活性", applyNeedAdjustment(input, `轻松跑 ${Math.max(20, easyMinutes - 12)} 分钟 + 拉伸放松，RPE 3-4。`, "recovery")),
-    day("周二", LABELS[primary], applyNeedAdjustment(input, `${getWorkout(phase.id, primary, weekNo, 0)}。${paceHint}${modifier}`, primary)),
-    day("周三", "力量与轻松跑", applyNeedAdjustment(input, `${getWorkout(phase.id, "strength", weekNo, 1)} + 轻松跑 ${Math.max(18, easyMinutes - 15)} 分钟。`, "strength")),
+    day("周一", "恢复与灵活性", applyNeedAdjustment(input, `轻松跑 ${Math.max(20, easyMinutes - 12)} 分钟 + 拉伸放松，RPE 3-4。${paceHintRecovery}`, "recovery")),
+    day("周二", LABELS[primary], applyNeedAdjustment(input, `${getWorkout(phase.id, primary, weekNo, 0)}。${paceHintPrimary}${modifier}`, primary)),
+    day("周三", "力量与轻松跑", applyNeedAdjustment(input, `${getWorkout(phase.id, "strength", weekNo, 1)} + 轻松跑 ${Math.max(18, easyMinutes - 15)} 分钟。${paceHintRecovery}`, "strength")),
     day("周四", qualityDayTitle, applyNeedAdjustment(input, qualityDayDetail, specialWorkout ? "eventSpecific" : secondary)),
     day("周五", "休息或交叉训练", "完全休息，或骑行/游泳 30 分钟，保持低强度。"),
-    day("周六", LABELS[tertiary], applyNeedAdjustment(input, `${getWorkout(phase.id, tertiary, weekNo, 3)}。${modifier}`, tertiary)),
-    day("周日", "有氧长跑", applyNeedAdjustment(input, `轻松长跑 ${longRunDistance} km，最后 5 分钟放松慢跑。`, "aerobic")),
+    day("周六", LABELS[tertiary], applyNeedAdjustment(input, `${getWorkout(phase.id, tertiary, weekNo, 3)}。${paceHintTertiary}${modifier}`, tertiary)),
+    day("周日", "有氧长跑", applyNeedAdjustment(input, `轻松长跑 ${longRunDistance} km，最后 5 分钟放松慢跑。${paceHintAerobic}`, "aerobic")),
   ];
 
   if (input.daysPerWeek === 4) return [fullWeek[0], fullWeek[1], fullWeek[3], fullWeek[6]];
@@ -1120,7 +1130,175 @@ function applyNeedAdjustment(input, detail, type) {
 
 function buildPaceHint(goalTime, event) {
   const pacePerUnit = goalTime / (Number(event) / 100);
-  return `参考目标节奏：每 100m 约 ${pacePerUnit.toFixed(1)} 秒，训练中按阶段上下浮动。`;
+  return `参考配速：${event}m 比赛节奏约 ${pacePerUnit.toFixed(1)} 秒/100m，其他训练类型配速见上方「训练配速参考表」。`;
+}
+
+// V2.2：根据训练类型生成对应的配速提示
+function buildPaceHintForType(input, analysis, trainingType) {
+  const est = analysis.estimated;
+  const event = Number(input.event);
+  const goalTime = input.goalTime;
+
+  const t400 = est[400];
+  const t800 = est[800] || (event === 800 ? goalTime : null);
+  const t1500 = est[1500];
+  const t3000 = est[3000];
+  const t5000 = est[5000];
+
+  const per100 = (time, dist) => (time && dist ? time / (dist / 100) : null);
+  const perKm = (time, dist) => (time && dist ? time / (dist / 1000) : null);
+
+  const thresholdPerKm = t5000 ? perKm(t5000, 5000) * 1.07 : (t3000 ? perKm(t3000, 3000) * 1.10 : null);
+  const easyPerKm = thresholdPerKm ? thresholdPerKm + 65 : null;
+  const sprintPer100 = t400 ? per100(t400, 400) * 0.92 : null;
+  const racePer100 = goalTime ? per100(goalTime, event) : null;
+
+  const fmt = formatPaceTime;
+
+  switch (trainingType) {
+    case "speed":
+      return sprintPer100 ? `配速：约 ${fmt(sprintPer100)}/100m（冲刺速度，组间充分恢复）。` : "";
+    case "speedEndurance":
+      if (t800 && t1500) return `配速：${fmt(per100(t800, 800))}/100m（800m 节奏）~ ${fmt(per100(t1500, 1500))}/100m（1500m 节奏）。`;
+      if (t800) return `配速：${fmt(per100(t800, 800))}/100m（800m 节奏）。`;
+      return "";
+    case "lactate":
+      return t800 ? `配速：${fmt(per100(t800, 800))}/100m 或略快（800m 比赛节奏，耐酸训练）。` : "";
+    case "vo2max":
+      if (t3000 && t5000) return `配速：${fmt(per100(t3000, 3000))}/100m（3km 配速）~ ${fmt(perKm(t5000, 5000))}/km（5km 配速）。`;
+      if (t3000) return `配速：${fmt(per100(t3000, 3000))}/100m（3km 配速）。`;
+      if (t5000) return `配速：${fmt(perKm(t5000, 5000))}/km（5km 配速）。`;
+      return "";
+    case "threshold":
+      return thresholdPerKm ? `配速：${fmt(thresholdPerKm)}/km（阈值配速，RPE 7-8）。` : "";
+    case "aerobic":
+      return easyPerKm ? `配速：${fmt(easyPerKm)}/km（轻松跑，RPE 4-5）。` : "";
+    case "recovery":
+      return easyPerKm ? `配速：${fmt(easyPerKm + 15)}/km（恢复跑，RPE 3）。` : "";
+    case "eventSpecific":
+      return racePer100 ? `配速：${fmt(racePer100)}/100m（${event}m 比赛配速），长段落按比赛节奏，短段落可略快。` : "";
+    case "strength":
+      return "";
+    default:
+      return "";
+  }
+}
+
+// V2.2：配速表生成 — 根据用户目标成绩推算各训练类型的具体配速
+function formatPaceTime(seconds) {
+  if (seconds == null || !isFinite(seconds)) return "—";
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  if (m > 0) return `${m}:${String(s).padStart(2, "0")}`;
+  return `${s}秒`;
+}
+
+function buildPaceTable(input, analysis) {
+  const est = analysis.estimated;
+  const event = Number(input.event);
+  const goalTime = input.goalTime;
+
+  // 从估算成绩中提取各距离时间
+  const t400 = est[400];
+  const t800 = est[800] || (event === 800 ? goalTime : null);
+  const t1500 = est[1500];
+  const t3000 = est[3000];
+  const t5000 = est[5000];
+  const t10000 = est[10000];
+
+  // 计算每 100m 配速
+  const per100 = (time, dist) => (time && dist ? time / (dist / 100) : null);
+  // 计算每 400m 配速
+  const per400 = (time, dist) => (time && dist ? time / (dist / 400) : null);
+  // 计算每 km 配速
+  const perKm = (time, dist) => (time && dist ? time / (dist / 1000) : null);
+
+  // 阈值配速：约比 5km 配速慢 6-8%
+  const thresholdPerKm = t5000 ? perKm(t5000, 5000) * 1.07 : (t3000 ? perKm(t3000, 3000) * 1.10 : null);
+  // 轻松跑配速：比阈值配速慢 60-75 秒/km
+  const easyPerKm = thresholdPerKm ? thresholdPerKm + 65 : null;
+  // 冲刺配速：基于 400m 成绩，略快
+  const sprintPer100 = t400 ? per100(t400, 400) * 0.92 : null;
+
+  // 比赛配速（用户目标项目的配速）
+  const racePer100 = goalTime ? per100(goalTime, event) : null;
+
+  const rows = [
+    {
+      label: "冲刺/速度训练",
+      desc: "30-80m 加速跑、短距离高速跑",
+      pace: sprintPer100 ? `${formatPaceTime(sprintPer100)}/100m` : "—",
+      detail: t400 ? `参考 400m 成绩 ${formatPaceTime(t400)}` : "需 400m 成绩",
+    },
+    {
+      label: `${event}m 比赛配速`,
+      desc: "专项刺激、比赛模拟",
+      pace: racePer100 ? `${formatPaceTime(racePer100)}/100m` : "—",
+      detail: goalTime ? `目标 ${formatPaceTime(goalTime)}` : "—",
+    },
+  ];
+
+  // 800m 配速（如果项目不是 800m）
+  if (event !== 800 && t800) {
+    rows.push({
+      label: "800m 配速",
+      desc: "800m 节奏间歇、速度耐力",
+      pace: `${formatPaceTime(per100(t800, 800))}/100m`,
+      detail: `400m 用时 ${formatPaceTime(per400(t800, 800))}`,
+    });
+  }
+
+  // 1500m 配速
+  if (t1500) {
+    rows.push({
+      label: "1500m 配速",
+      desc: "1500m 节奏、速度耐力间歇",
+      pace: `${formatPaceTime(per100(t1500, 1500))}/100m`,
+      detail: `400m 用时 ${formatPaceTime(per400(t1500, 1500))}`,
+    });
+  }
+
+  // 3km 配速
+  if (t3000) {
+    rows.push({
+      label: "3km 配速",
+      desc: "VO₂max 间歇、中长间歇",
+      pace: `${formatPaceTime(per100(t3000, 3000))}/100m`,
+      detail: `400m 用时 ${formatPaceTime(per400(t3000, 3000))}，1km 用时 ${formatPaceTime(perKm(t3000, 3000))}`,
+    });
+  }
+
+  // 5km 配速
+  if (t5000) {
+    rows.push({
+      label: "5km 配速",
+      desc: "VO₂max 长间歇、5km 节奏",
+      pace: `${formatPaceTime(perKm(t5000, 5000))}/km`,
+      detail: `400m 用时 ${formatPaceTime(per400(t5000, 5000))}`,
+    });
+  }
+
+  // 阈值配速
+  if (thresholdPerKm) {
+    rows.push({
+      label: "阈值配速",
+      desc: "节奏跑、阈值间歇",
+      pace: `${formatPaceTime(thresholdPerKm)}/km`,
+      detail: `400m 用时 ${formatPaceTime(thresholdPerKm * 0.4)}`,
+    });
+  }
+
+  // 轻松跑配速
+  if (easyPerKm) {
+    rows.push({
+      label: "轻松跑配速",
+      desc: "恢复跑、有氧长跑、热身/放松",
+      pace: `${formatPaceTime(easyPerKm)}/km`,
+      detail: `RPE 3-4，可以正常对话`,
+    });
+  }
+
+  return rows;
 }
 
 function renderSummary(input, analysis) {
@@ -1222,6 +1400,14 @@ function renderSummary(input, analysis) {
       <h4>教练建议</h4>
       <p><strong>你的主要限制因素：</strong>${coachAdvice.limitingFactor}</p>
       <p><strong>未来训练重点：</strong>${coachAdvice.trainingFocus}</p>
+    </div>
+    <h4 style="margin:16px 0 6px;font-size:15px;color:var(--green-dark)">训练配速参考表</h4>
+    <div class="pace-table-box">
+      <table class="pace-table">
+        <thead><tr><th>训练类型</th><th>配速</th><th>说明</th></tr></thead>
+        <tbody>${buildPaceTable(input, analysis).map((r) => `<tr><td class="pace-label">${r.label}</td><td class="pace-value">${r.pace}</td><td class="pace-desc">${r.desc}<br><small>${r.detail}</small></td></tr>`).join("")}</tbody>
+      </table>
+      <p class="pace-note">以上配速基于你的目标成绩和各距离估算成绩推算。实际训练中根据天气、疲劳状态上下浮动 3-5%。强化期偏快端，基础期偏慢端。</p>
     </div>
     <div class="weakness-box">
       <h4>短板识别与训练调整</h4>
