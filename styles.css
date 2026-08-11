@@ -1306,6 +1306,12 @@ textarea {
 }
 
 /* ---- 训练日历 ---- */
+.cal-top-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 10px;
+}
+
 .calendar-page .cal-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1481,6 +1487,41 @@ textarea {
   opacity: 0.4;
   cursor: not-allowed;
   pointer-events: none;
+}
+
+.danger-btn {
+  color: var(--red);
+  border-color: rgba(196, 82, 70, 0.25);
+  background: rgba(255, 245, 243, 0.75);
+}
+.danger-btn:hover {
+  background: #fff5f3;
+  color: #a93f34;
+  border-color: rgba(196, 82, 70, 0.45);
+}
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 13px 22px;
+  background: var(--red);
+  color: white;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.danger-button:hover {
+  transform: translateY(-1px);
+  background: #a93f34;
+}
+.danger-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .day-grid {
@@ -1705,6 +1746,16 @@ textarea {
 .logs-table .status-partial { color: var(--orange); font-weight: 700; }
 .logs-table .status-skipped { color: var(--muted); }
 .logs-table .status-pending { color: var(--muted); }
+
+.logs-table td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.logs-table .log-del-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
 
 /* ---- 响应式 ---- */
 @media (max-width: 880px) {

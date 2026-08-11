@@ -2855,7 +2855,8 @@ async function renderPlanPage(app, user) {
 
       <div class="plan-action-bar">
         ${isActiveThis
-          ? `<div class="plan-status plan-status-active">✓ 已启用 · 开始日期 ${escapeHtml(activeAssignment.start_date)} · 共 ${activeAssignment.total_weeks} 周 · <a href="#/calendar">查看训练日历 →</a></div>`
+          ? `<div class="plan-status plan-status-active">✓ 已启用 · 开始日期 ${escapeHtml(activeAssignment.start_date)} · 共 ${activeAssignment.total_weeks} 周 · <a href="#/calendar">查看训练日历 →</a></div>
+             <button class="ghost-button danger-btn" id="revokePlanBtn">撤回启用</button>`
           : `<button class="primary-button" id="enablePlanBtn">启用此课表</button>
              ${activeAssignment ? `<span class="plan-status plan-status-other">当前已启用其他课表，启用新课表会覆盖原课表</span>` : ""}`
         }
@@ -2876,6 +2877,14 @@ async function renderPlanPage(app, user) {
   const enableBtn = document.getElementById("enablePlanBtn");
   if (enableBtn) {
     enableBtn.addEventListener("click", () => openEnablePlanModal(snap, totalWeeks));
+  }
+
+  // 绑定「撤回启用」按钮
+  const revokeBtn = document.getElementById("revokePlanBtn");
+  if (revokeBtn && activeAssignment) {
+    revokeBtn.addEventListener("click", () => {
+      openRevokePlanModal(activeAssignment.id, () => router());
+    });
   }
 }
 
@@ -2932,6 +2941,100 @@ function openEnablePlanModal(snapshot, totalWeeks) {
       showToast("启用失败：" + (err.message || err), "error");
       btn.disabled = false;
       btn.textContent = "确认启用";
+    }
+  });
+}
+
+/* ---- 撤回课表确认弹窗 ---- */
+function openRevokePlanModal(assignmentId, onSuccess) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>撤回课表启用</h3>
+        <button class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="adjustment-box" style="border-color:rgba(196,82,70,0.25);background:linear-gradient(180deg,#fff5f3,#fdecea);">
+          <strong>确认要撤回这份课表吗？</strong>
+          <p>撤回后：训练日历将不再显示这份课表，你需要重新启用才能继续打卡。</p>
+          <p>之前已经记录过的训练日志和历史数据不会被删除，随时可以重新启用查看。</p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost-button" id="revokeCancelBtn">取消</button>
+        <button class="danger-button" id="revokeConfirmBtn">确认撤回</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".modal-close").addEventListener("click", close);
+  overlay.querySelector("#revokeCancelBtn").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector("#revokeConfirmBtn").addEventListener("click", async () => {
+    const btn = overlay.querySelector("#revokeConfirmBtn");
+    btn.disabled = true;
+    btn.textContent = "撤回中…";
+    try {
+      await deactivateAssignment(currentUser.id, assignmentId);
+      showToast("课表已撤回", "success");
+      close();
+      if (onSuccess) onSuccess();
+    } catch (err) {
+      showToast("撤回失败：" + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = "确认撤回";
+    }
+  });
+}
+
+/* ---- 删除训练日志确认弹窗 ---- */
+function openDeleteLogModal(dateStr, onSuccess) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>删除训练日志</h3>
+        <button class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="adjustment-box" style="border-color:rgba(196,82,70,0.25);background:linear-gradient(180deg,#fff5f3,#fdecea);">
+          <strong>确认要删除 ${escapeHtml(dateStr)} 的训练日志吗？</strong>
+          <p>删除后该日的训练记录、训练负荷数据将一并清除，无法恢复。</p>
+          <p>如果只是想修改内容，建议直接修改后点「更新日志」而不是删除重建。</p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost-button" id="delLogCancelBtn">取消</button>
+        <button class="danger-button" id="delLogConfirmBtn">确认删除</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".modal-close").addEventListener("click", close);
+  overlay.querySelector("#delLogCancelBtn").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+
+  overlay.querySelector("#delLogConfirmBtn").addEventListener("click", async () => {
+    const btn = overlay.querySelector("#delLogConfirmBtn");
+    btn.disabled = true;
+    btn.textContent = "删除中…";
+    try {
+      await deleteTrainingLog(currentUser.id, dateStr);
+      showToast("日志已删除", "success");
+      close();
+      if (onSuccess) onSuccess();
+    } catch (err) {
+      showToast("删除失败：" + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = "确认删除";
     }
   });
 }
@@ -3074,6 +3177,10 @@ async function renderCalendarPage(app, user) {
         </p>
       </div>
 
+      <div class="cal-top-actions">
+        <button class="ghost-button danger-btn" id="revokeCalBtn" data-id="${escapeHtml(assignment.id)}">↺ 撤回当前课表</button>
+      </div>
+
       <div class="cal-summary">
         <div class="cal-summary-item">
           <span>累计训练负荷</span>
@@ -3096,6 +3203,15 @@ async function renderCalendarPage(app, user) {
       <div class="cal-weeks">${weekBlocks.join("")}</div>
     </section>
   `;
+
+  // 绑定「撤回当前课表」按钮
+  const revokeCal = document.getElementById("revokeCalBtn");
+  if (revokeCal) {
+    const aId = revokeCal.getAttribute("data-id");
+    revokeCal.addEventListener("click", () => {
+      openRevokePlanModal(aId, () => router());
+    });
+  }
 }
 
 /* ---- /day/:date 每日训练详情页 ---- */
@@ -3298,15 +3414,8 @@ async function renderDayPage(app, user, dateStr) {
   // 删除日志
   const delBtn = document.getElementById("logDelete");
   if (delBtn) {
-    delBtn.addEventListener("click", async () => {
-      if (!confirm("确定删除这一天的日志？")) return;
-      try {
-        await deleteTrainingLog(user.id, dateStr);
-        showToast("已删除", "success");
-        renderDayPage(app, user, dateStr);
-      } catch (err) {
-        showToast("删除失败：" + (err.message || err), "error");
-      }
+    delBtn.addEventListener("click", () => {
+      openDeleteLogModal(dateStr, () => renderDayPage(app, user, dateStr));
     });
   }
 
@@ -3467,7 +3576,7 @@ async function renderLogsPage(app, user) {
             ? `<p class="form-note">还没有训练日志，去训练日历选择一天开始记录吧。</p>`
             : `<table class="logs-table">
                 <thead>
-                  <tr><th>日期</th><th>项目</th><th>状态</th><th>负荷</th><th>时长</th><th>RPE</th></tr>
+                  <tr><th>日期</th><th>项目</th><th>状态</th><th>负荷</th><th>时长</th><th>RPE</th><th>操作</th></tr>
                 </thead>
                 <tbody>
                   ${allLogs.slice(0, 30).map((l) => `
@@ -3478,6 +3587,7 @@ async function renderLogsPage(app, user) {
                       <td>${l.training_load ? Number(l.training_load).toFixed(0) : "—"}</td>
                       <td>${l.duration_min || "—"}</td>
                       <td>${l.rpe || "—"}</td>
+                      <td><button class="ghost-button danger-btn log-del-btn" data-date="${escapeHtml(l.log_date)}">删除</button></td>
                     </tr>
                   `).join("")}
                 </tbody>
@@ -3487,6 +3597,14 @@ async function renderLogsPage(app, user) {
       </div>
     </section>
   `;
+
+  // 绑定日志删除按钮
+  document.querySelectorAll(".log-del-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const dateStr = btn.getAttribute("data-date");
+      openDeleteLogModal(dateStr, () => renderLogsPage(app, user));
+    });
+  });
 }
 
 function statusLabel(status) {
