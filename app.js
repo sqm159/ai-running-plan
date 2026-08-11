@@ -107,29 +107,32 @@ const DEFAULT_WEIGHTS = {
   5000: { speed: 5, speedEndurance: 10, lactate: 8, vo2max: 20, threshold: 25, aerobic: 32 },
 };
 
+// V1.1 运动员类型识别模型：基于速度偏向指数（SBI = 绝对速度 - 有氧能力）
+// 不依据单项能力高低，而依据速度与耐力的相对结构比例
 const ATHLETE_TYPE_RULES = [
   {
     id: "speed",
     label: "速度型",
     badgeClass: "badge-speed",
-    // V2.2：绝对速度≥需求-5 且 中段速度耐力≤需求-10
-    test: (s, d) => s.speed >= d.speed - 5 && s.speedEndurance <= d.speedEndurance - 10,
+    // V1.1：SBI ≥ 10 且 绝对速度达到需求附近（gap ≤ 15）
+    test: (s, d) => (s.speed - s.aerobic >= 10) && s.speed >= d.speed - 15,
     desc: (event) => `速度储备优秀，${event}米训练应优先补强高速保持能力，同时维持速度优势。`,
   },
   {
     id: "endurance",
     label: "耐力型",
     badgeClass: "badge-endurance",
-    // V2.2：有氧能力≥需求 且 绝对速度≤需求-10
-    test: (s, d) => s.aerobic >= d.aerobic && s.speed <= d.speed - 10,
+    // V1.1：SBI ≤ -10
+    test: (s, d) => s.speed - s.aerobic <= -10,
     desc: (event) => `耐力基础优秀，${event}米训练应重点提升速度储备和爆发力，把耐力优势转化为专项速度。`,
   },
   {
     id: "balanced",
-    label: "能力型",
+    label: "均衡型",
     badgeClass: "badge-balanced",
+    // V1.1：-10 < SBI < 10
     test: () => true,
-    desc: (event) => `各维度较为均衡，${event}米训练按目标需求分配重点，均衡提升同时补强最弱维度。`,
+    desc: (event) => `各项能力较均衡，${event}米训练按目标需求分配重点，均衡提升同时补强最弱维度。`,
   },
 ];
 
@@ -797,12 +800,40 @@ function extractProfile(tier) {
 
 function classifyAthleteType(scores, goalDemands, event) {
   const eventName = EVENT_MODELS[event].name.replace(" 米", "");
+  // V1.1：速度偏向指数 = 绝对速度评分 - 有氧能力评分
+  const sbi = scores.speed != null && scores.aerobic != null
+    ? scores.speed - scores.aerobic : 0;
+
   const rule = ATHLETE_TYPE_RULES.find((r) => r.test(scores, goalDemands));
+  let description = rule.desc(eventName);
+  let limitingFactor = null;
+
+  // V1.1 第五章：800米专项修正规则
+  if (event === 800) {
+    if (rule.id === "speed" && scores.lactate != null && goalDemands.lactate != null) {
+      // 规则1：速度型专项不足 — SBI ≥ 10 且 末段乳酸能力 < 需求 - 15
+      if (scores.lactate < goalDemands.lactate - 15) {
+        const lactateGap = goalDemands.lactate - scores.lactate;
+        limitingFactor = "末段乳酸能力";
+        description = `速度偏向指数 ${sbi}，速度储备较好，但末段乳酸能力明显不足（差距 ${lactateGap} 分），速度优势尚未转化为 ${eventName}米成绩。训练重点：增加 300-600m 专项乳酸耐受训练。`;
+      }
+    } else if (rule.id === "endurance" && scores.speed != null && goalDemands.speed != null) {
+      // 规则2：耐力型专项不足 — SBI ≤ -10 且 绝对速度 < 需求 - 15
+      if (scores.speed < goalDemands.speed - 15) {
+        const speedGap = goalDemands.speed - scores.speed;
+        limitingFactor = "绝对速度";
+        description = `速度偏向指数 ${sbi}，有氧基础强，但绝对速度明显不足（差距 ${speedGap} 分），需要提升速度储备。训练重点：增加 100-200m 速度训练、爆发力训练。`;
+      }
+    }
+  }
+
   return {
     id: rule.id,
     label: rule.label,
     badgeClass: rule.badgeClass,
-    description: rule.desc(eventName),
+    description,
+    limitingFactor,
+    sbi,
   };
 }
 
@@ -836,7 +867,7 @@ function analyzeWeaknesses(scores, goalDemands, event, athleteType) {
         .sort((a, b) => (scores[a] - goalDemands[a]) - (scores[b] - goalDemands[b]))[0];
       const gap = goalDemands[weakest] - scores[weakest];
       return [{
-        type: `${eventName}米${athleteType.label}运动员`,
+        type: `${athleteType.label}${eventName}米运动员`,
         factor: `${LABELS[weakest]}是主要限制因素`,
         adjustment: `重点补强${LABELS[weakest]}，当前差距${gap}分`,
         weightShift: { from: null, to: weakest, amount: 8 },
@@ -1418,7 +1449,7 @@ function renderSummary(input, analysis) {
       <span class="athlete-type-desc">${typeBadge.description}</span>
     </div>
     <div class="metric">
-      <span>运动员类型：${typeBadge.label}${input.model.name}运动员（年龄修正系数 ${analysis.ageCoef}）</span>
+      <span>运动员类型：${typeBadge.label}${input.model.name}运动员（速度偏向指数 ${typeBadge.sbi ?? "—"}，年龄修正系数 ${analysis.ageCoef}）</span>
       <strong>专项综合评分 ${analysis.weightedScore}/100</strong>
     </div>
     <div class="metric" style="margin-top:8px">
