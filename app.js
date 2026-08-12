@@ -1846,6 +1846,19 @@ async function getLatestAnalysis(userId) {
   return data;
 }
 
+async function updateAnalysisPlan(snapshotId, newPlanJson, adjustLog = null) {
+  const client = initSupabase();
+  const updatePayload = { plan_json: newPlanJson };
+  if (adjustLog) {
+    updatePayload.adjust_log = adjustLog;
+  }
+  const { error } = await client
+    .from("analysis_snapshots")
+    .update(updatePayload)
+    .eq("id", snapshotId);
+  if (error) throw error;
+}
+
 async function getAnalysisById(snapshotId) {
   const client = initSupabase();
   const { data, error } = await client
@@ -4123,15 +4136,17 @@ async function renderCalendarPage(app, user) {
 
       const dayTitle = planned?.isRest ? "休息日" : (planned?.title || "—");
       const dayShort = planned?.isRest ? "休息" : (planned?.title ? planned.title.split(" ")[0] : "—");
+      const isAdjusted = !planned?.isRest && planned?.__adjusted;
+      const adjustedLabel = isAdjusted ? "已调整" : "";
 
       days.push(`
-        <a class="cal-day ${statusClass} ${isToday ? "cal-day-today" : ""}" href="#/day/${dateStr}">
+        <a class="cal-day ${statusClass} ${isToday ? "cal-day-today" : ""} ${isAdjusted ? "cal-day-adjusted" : ""}" href="#/day/${dateStr}">
           <div class="cal-day-head">
             <span class="cal-wd">${weekdayName(date)}</span>
             <span class="cal-date">${date.getMonth() + 1}/${date.getDate()}</span>
           </div>
-          <div class="cal-day-title">${escapeHtml(dayShort)}</div>
-          <div class="cal-day-status">${statusLabel}</div>
+          <div class="cal-day-title">${escapeHtml(dayShort)}${isAdjusted ? ` <span style="color:#6366f1;font-size:10px;">🔧</span>` : ""}</div>
+          <div class="cal-day-status">${adjustedLabel ? `<span style="color:#6366f1;">${adjustedLabel}</span> · ` : ""}${statusLabel}</div>
           ${log?.training_load ? `<div class="cal-day-load">${log.training_load} AU</div>` : ""}
         </a>
       `);
@@ -4177,6 +4192,16 @@ async function renderCalendarPage(app, user) {
           · <a href="#/logs">查看训练历史 →</a>
         </p>
       </div>
+
+      ${snapshot.adjust_log ? `
+        <div class="adjust-banner">
+          <div class="adj-icon">🔄</div>
+          <div class="adj-body">
+            <h4>已根据近期反馈动态调整训练课</h4>
+            <p>${escapeHtml(snapshot.adjust_log.summary || "")} · 影响 ${snapshot.adjust_log.affectedWeeks || "-"} 周 / ${snapshot.adjust_log.affectedDays || "-"} 个训练日 · 调整时间 ${snapshot.adjust_log.applied_at ? new Date(snapshot.adjust_log.applied_at).toLocaleString() : "-"}</p>
+          </div>
+        </div>
+      ` : ""}
 
       <div class="cal-top-actions">
         <button class="ghost-button danger-btn" id="revokeCalBtn" data-id="${escapeHtml(assignment.id)}">↺ 撤回当前课表</button>
@@ -4286,10 +4311,11 @@ async function renderDayPage(app, user, dateStr) {
       </div>
 
       <div class="day-grid">
-        <article class="day-plan panel">
-          <h3>今日计划</h3>
+        <article class="day-plan panel ${planned?.__adjusted ? "adjust-box" : ""}">
+          <h3>今日计划${planned?.__adjusted ? ` <span class="badge badge-balanced" style="margin-left:6px;">🔧 已调整</span>` : ""}</h3>
           <div class="day-plan-title">${escapeHtml(plannedTitle)}</div>
           ${plannedDetail ? `<p class="day-plan-detail">${escapeHtml(plannedDetail)}</p>` : ""}
+          ${planned?.__adjusted && snapshot.adjust_log ? `<p class="form-note" style="margin-top:10px;">💡 本次调整依据：${escapeHtml(snapshot.adjust_log.summary || "")}（${snapshot.adjust_log.applied_at ? new Date(snapshot.adjust_log.applied_at).toLocaleDateString() : ""}）</p>` : ""}
         </article>
 
         <article class="day-log panel">
@@ -4395,10 +4421,11 @@ async function renderDayPage(app, user, dateStr) {
       note: document.getElementById("logNote").value.trim() || null,
     };
 
+    const feedbackContext = { user, assignment, snapshot };
     try {
       const saved = await upsertTrainingLog(user.id, dateStr, payload);
       showToast("日志已保存", "success");
-      renderDayFeedback(saved, planned);
+      renderDayFeedback(saved, planned, feedbackContext);
       btn.disabled = false;
       btn.textContent = "更新日志";
       if (!document.getElementById("logDelete")) {
@@ -4422,19 +4449,18 @@ async function renderDayPage(app, user, dateStr) {
 
   // 渲染已有日志的反馈
   if (log) {
-    renderDayFeedback(log, planned);
+    renderDayFeedback(log, planned, { user, assignment, snapshot });
   }
 }
 
-// 渲染训练日志的评估反馈
-function renderDayFeedback(log, planned) {
+// 渲染训练日志的评估反馈 + 动态调整建议
+async function renderDayFeedback(log, planned, context) {
   const box = document.getElementById("logFeedback");
   if (!box) return;
   if (!log || log.status === "pending") {
     box.innerHTML = "";
     return;
   }
-
   const feedback = [];
 
   if (log.status === "skipped") {
@@ -4447,7 +4473,6 @@ function renderDayFeedback(log, planned) {
       else if (load < 100) feedback.push(`训练负荷 ${load} AU，属于较大训练量，注意后续 24 小时的恢复。`);
       else feedback.push(`训练负荷 ${load} AU，属于高强度训练，建议明天安排轻松或休息日。`);
     }
-
     if (log.rpe) {
       const rpe = Number(log.rpe);
       if (rpe >= 16 && log.status === "completed") {
@@ -4456,21 +4481,349 @@ function renderDayFeedback(log, planned) {
         feedback.push(`RPE ${rpe} 较低，训练较为轻松，可考虑在状态好的时候适度上调强度。`);
       }
     }
-
     if (log.feeling === "bad" || log.feeling === "tired") {
       feedback.push("主观感受偏疲累，明天可降低负荷或改为轻松跑 + 拉伸。");
     } else if (log.feeling === "great") {
       feedback.push("状态很好！可以按计划推进，但不要冲到力竭。");
     }
-
     if (log.status === "partial") {
       feedback.push("部分完成：记录好跳过的部分，下一次同类训练课可以补回。");
     }
   }
 
-  box.innerHTML = feedback.length
-    ? `<article class="panel advice-box"><h3>系统评估</h3><ul class="feedback-list">${feedback.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul></article>`
-    : "";
+  // ==== 动态调整建议卡片 ====
+  let adjustHtml = "";
+  if (context && context.user && context.assignment && context.snapshot) {
+    try {
+      const assignmentStart = context.assignment.start_date;
+      const totalDays = context.assignment.total_weeks * 7;
+      const assignmentEnd = formatDateISO(
+        addDays(parseDateISO(assignmentStart), totalDays - 1)
+      );
+      const recentLogs = await listTrainingLogs(context.user.id, assignmentStart, assignmentEnd);
+      const { coefficient, reasons } = analyzeRecentFeedback(recentLogs);
+      const spec = calcAdjustmentSpec(coefficient);
+
+      const badgeColor =
+        spec.loadMult > 1.05 ? "badge-endurance" :
+        spec.loadMult < 0.95 ? "badge-speed" : "badge-balanced";
+
+      adjustHtml = `
+        <article class="panel advice-box adjust-box" id="dynamicAdjustBox">
+          <h3>🔄 动态调整训练计划</h3>
+          <p><span class="badge ${badgeColor}">适应系数 ${(coefficient * 100).toFixed(0)}%</span></p>
+          <p><strong>${escapeHtml(spec.summary)}</strong></p>
+          <ul class="feedback-list">
+            ${reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}
+          </ul>
+          <div class="log-actions">
+            <button class="primary-button" id="applyAdjustBtn">应用到后续训练课</button>
+            <button class="ghost-button" id="previewAdjustBtn">先预览调整内容</button>
+          </div>
+          <div id="adjustPreviewBox" style="display:none;margin-top:14px;"></div>
+        </article>
+      `;
+
+      // 延迟绑定点击（等 DOM 插入）
+      setTimeout(() => {
+        const previewBtn = document.getElementById("previewAdjustBtn");
+        const applyBtn = document.getElementById("applyAdjustBtn");
+        const previewBox = document.getElementById("adjustPreviewBox");
+
+        previewBtn?.addEventListener("click", () => {
+          const todayStr = formatDateISO(new Date());
+          const result = applyDynamicAdjustmentToPlan(
+            context.snapshot, context.assignment, todayStr, spec
+          );
+          if (previewBox) {
+            previewBox.style.display = "block";
+            previewBox.innerHTML = `
+              <div class="adjust-preview-inner">
+                <p>调整影响：后续 <strong>${result.adjustedWeeks}</strong> 周、共 <strong>${result.adjustedDays}</strong> 个训练日。</p>
+                <p class="muted small">已过去的训练课不会修改，只调整从今天起之后的训练计划（距离/时长/RPE/配速）。调整后会备份原计划。</p>
+              </div>
+            `;
+          }
+        });
+
+        applyBtn?.addEventListener("click", async () => {
+          if (applyBtn.disabled) return;
+          if (!confirm("确认将按上述建议调整后续训练课？已过去的训练课不会修改。")) return;
+
+          applyBtn.disabled = true;
+          applyBtn.textContent = "调整中…";
+          try {
+            const todayStr = formatDateISO(new Date());
+            const result = applyDynamicAdjustmentToPlan(
+              context.snapshot, context.assignment, todayStr, spec
+            );
+            const adjustLog = {
+              applied_at: new Date().toISOString(),
+              coefficient,
+              loadMult: spec.loadMult,
+              paceSecPer100: spec.paceSecPer100,
+              rpeShift: spec.rpeShift,
+              summary: spec.summary,
+              reasons,
+              affectedWeeks: result.adjustedWeeks,
+              affectedDays: result.adjustedDays,
+            };
+            await updateAnalysisPlan(context.assignment.snapshot_id, result.newPlan, adjustLog);
+
+            // 成功后刷新页面
+            showToast(`调整成功！已更新后续 ${result.adjustedDays} 个训练日。`, "success");
+            setTimeout(() => router(), 800);
+          } catch (e) {
+            showToast("调整失败：" + (e.message || String(e)), "error");
+            applyBtn.disabled = false;
+            applyBtn.textContent = "应用到后续训练课";
+          }
+        });
+      }, 50);
+    } catch (e) {
+      console.warn("动态调整渲染失败：", e);
+    }
+  }
+
+  box.innerHTML = `
+    ${feedback.length
+      ? `<article class="panel advice-box"><h3>系统评估</h3><ul class="feedback-list">${feedback.map((f) => `<li>${escapeHtml(f)}</li>`).join("")}</ul></article>`
+      : ""}
+    ${adjustHtml}
+  `;
+}
+
+/* ===================== 9.4 训练计划动态调整 ===================== */
+/**
+ * 根据近期训练反馈综合计算「适应系数」：
+ *  - 1.15+ → 状态极佳 → 上调负荷 +15%、配速 -3 秒/100m
+ *  - 1.05~1.15 → 状态不错 → 上调负荷 +8%、配速 -1.5 秒/100m
+ *  - 0.90~1.05 → 正常 → 不调
+ *  - 0.75~0.90 → 稍吃力 → 下调负荷 -12%、配速 +2 秒/100m
+ *  - <0.75 → 很吃力 → 下调负荷 -22%、配速 +4 秒/100m
+ *
+ * 系数来源：完成率(40%) + RPE 偏差(30%) + 主观感受(20%) + 跳过惩罚(10%)
+ */
+function analyzeRecentFeedback(recentLogs) {
+  if (!recentLogs || recentLogs.length === 0) {
+    return { coefficient: 1.0, reasons: ["近期无训练反馈，暂不调整。"] };
+  }
+  const logs = recentLogs.slice(-Math.min(7, recentLogs.length));
+  const effective = logs.filter((l) => l.status !== "pending" && l.status !== "skipped");
+
+  // 1) 完成率 (0~1, 40%)
+  let completionScore = 1.0;
+  if (logs.length > 0) {
+    const completed = logs.filter((l) => l.status === "completed").length;
+    const partial = logs.filter((l) => l.status === "partial").length;
+    completionScore = clamp((completed * 1.0 + partial * 0.6) / logs.length, 0.2, 1.0);
+  }
+
+  // 2) RPE 偏差 (30%)：RPE<计划预期 → 更轻松 → 加分；RPE>计划 → 吃力 → 减分
+  let rpeScore = 1.0;
+  if (effective.length > 0) {
+    const rpeDiff = effective.map((l) => {
+      const planned = 12; // 训练课默认 RPE 期望
+      return Number(l.rpe) ? (Number(l.rpe) - planned) : 0;
+    });
+    const avgDiff = rpeDiff.reduce((a, b) => a + b, 0) / effective.length;
+    // avgDiff: -2 表示比预期轻松 2 档 → +0.2；+2 → -0.2
+    rpeScore = clamp(1.0 - avgDiff * 0.1, 0.7, 1.25);
+  }
+
+  // 3) 主观感受 (20%)
+  let feelingScore = 1.0;
+  if (logs.length > 0) {
+    const map = { great: 1.2, good: 1.08, normal: 1.0, tired: 0.88, bad: 0.72 };
+    const rated = logs.filter((l) => l.feeling && map[l.feeling]);
+    if (rated.length) {
+      feelingScore = rated.reduce((a, l) => a + (map[l.feeling] || 1.0), 0) / rated.length;
+    }
+  }
+
+  // 4) 跳过惩罚 (10%)：每跳过一次 -0.02，最多 -0.08
+  let skipPenalty = 1.0;
+  const skips = logs.filter((l) => l.status === "skipped").length;
+  skipPenalty = clamp(1.0 - skips * 0.02, 0.92, 1.0);
+
+  const coefficient = clamp(
+    completionScore * 0.4 + rpeScore * 0.3 + feelingScore * 0.2 + skipPenalty * 0.1,
+    0.65, 1.25
+  );
+
+  const reasons = [];
+  reasons.push(`最近 ${logs.length} 天完成率 ${(completionScore * 100).toFixed(0)}%。`);
+  if (rpeScore < 0.95) reasons.push(`RPE 偏高，训练对当前较吃力。`);
+  else if (rpeScore > 1.05) reasons.push(`RPE 偏低，训练较为轻松，有提升空间。`);
+  if (feelingScore < 0.95) reasons.push(`主观感受偏疲劳。`);
+  else if (feelingScore > 1.05) reasons.push(`主观感受不错。`);
+  if (skips > 0) reasons.push(`近 ${skips} 次跳过训练课，负荷要保守些。`);
+
+  return { coefficient, reasons, completionScore, rpeScore, feelingScore, skipPenalty };
+}
+
+/**
+ * 根据适应系数生成"调整规格"
+ * @param {number} coefficient 适应系数 0.65~1.25
+ * @returns {{ loadMult:number, paceSecPer100:number, rpeShift:number, summary:string }}
+ */
+function calcAdjustmentSpec(coefficient) {
+  let loadMult = 1.0;     // 负荷倍率
+  let paceDelta = 0;      // 配速秒数变化 (+慢 / -快)
+  let rpeShift = 0;       // RPE 建议档位
+  let summary = "";
+
+  if (coefficient >= 1.15) {
+    loadMult = 1.15; paceDelta = -3; rpeShift = 1;
+    summary = "状态极佳：计划上调 15% 训练量，配速略提高 3 秒/100m。";
+  } else if (coefficient >= 1.05) {
+    loadMult = 1.08; paceDelta = -1.5; rpeShift = 0.5;
+    summary = "状态不错：计划上调 8% 训练量，配速略提高 1.5 秒/100m。";
+  } else if (coefficient >= 0.90) {
+    loadMult = 1.0; paceDelta = 0; rpeShift = 0;
+    summary = "一切正常：不调整训练量和配速。";
+  } else if (coefficient >= 0.75) {
+    loadMult = 0.88; paceDelta = 2; rpeShift = -1;
+    summary = "稍吃力：下调 12% 训练量，配速放缓 2 秒/100m。";
+  } else {
+    loadMult = 0.78; paceDelta = 4; rpeShift = -1.5;
+    summary = "很吃力：大幅下调 22% 训练量，配速放缓 4 秒/100m，优先恢复。";
+  }
+  return { loadMult, paceSecPer100: paceDelta, rpeShift, summary };
+}
+
+/**
+ * 把"配速提示文本"中的配速整体按秒数平移
+ * 例如 "配速：4:30/km（阈值配速）" → delta=+2 → "配速：4:32/km（阈值配速，已下调 2 秒/100m）"
+ */
+function shiftPaceHint(text, secPer100Delta) {
+  if (!text || Math.abs(secPer100Delta) < 0.1) return text;
+  let result = text;
+  // 匹配 "X:XX/100m" 或 "X:XX/km"
+  result = result.replace(/(\d+):(\d{2})(秒)?(\/\d+m)?/g, (m, mStr, sStr, _sec, unit) => {
+    const totalSec = Number(mStr) * 60 + Number(sStr) + secPer100Delta;
+    if (totalSec < 0) return m;
+    const nm = Math.floor(totalSec / 60);
+    const ns = Math.round(totalSec % 60);
+    if (nm > 0) return `${nm}:${String(ns).padStart(2, "0")}${unit || ""}`;
+    return `${ns}秒${unit || ""}`;
+  });
+  // 匹配 "X秒/100m"
+  result = result.replace(/(\d+)秒/g, (m, s) => {
+    const ns = Number(s) + Math.round(secPer100Delta);
+    if (ns <= 0) return m;
+    return `${ns}秒`;
+  });
+  // 给结尾加一个已调整标记
+  const tag = secPer100Delta > 0
+    ? `（已下调配速 ${secPer100Delta.toFixed(1)} 秒/100m）`
+    : `（已上调配速 ${Math.abs(secPer100Delta).toFixed(1)} 秒/100m）`;
+  if (!result.includes("已调整") && !result.includes("已下调") && !result.includes("已上调")) {
+    if (result.endsWith("。")) result = result.slice(0, -1) + tag + "。";
+    else result += tag;
+  }
+  return result;
+}
+
+/**
+ * 把训练课详细说明里的"时长/距离/RPE 描述"按负荷倍率调整
+ */
+function scaleDayDetail(detail, loadMult, rpeShift) {
+  if (!detail) return detail;
+  let result = String(detail);
+
+  // 距离：如 "8.5 km"、"8 km"、"20 分钟"
+  result = result.replace(/(\d+(\.\d+)?)\s*km/g, (m, n) => {
+    const v = (Number(n) * loadMult).toFixed(1);
+    return `${v} km`;
+  });
+  // 分钟数
+  result = result.replace(/(\d+)\s*分钟/g, (m, n) => {
+    const v = Math.max(10, Math.round(Number(n) * loadMult));
+    return `${v} 分钟`;
+  });
+  // RPE 区间 "RPE 3-4" / "RPE 7-8"
+  result = result.replace(/RPE\s+(\d+)\s*[~-]\s*(\d+)/g, (m, a, b) => {
+    const na = clamp(Math.round(Number(a) + rpeShift), 3, 20);
+    const nb = clamp(Math.round(Number(b) + rpeShift), 3, 20);
+    return `RPE ${Math.min(na, nb)}-${Math.max(na, nb)}`;
+  });
+
+  if (loadMult > 1.02) result += `（动态上调 ${Math.round((loadMult - 1) * 100)}% 训练量）`;
+  else if (loadMult < 0.98) result += `（动态下调 ${Math.round((1 - loadMult) * 100)}% 训练量）`;
+
+  return result;
+}
+
+/**
+ * 核心：对剩余未执行的训练计划做动态调整
+ * @param {object} snapshot 完整的 analysis_snapshot 行
+ * @param {object} assignment 当前启用的 assignment（含 start_date, total_weeks）
+ * @param {string} todayStr 今天日期（YYYY-MM-DD）
+ * @param {object} spec { loadMult, paceSecPer100, rpeShift }
+ * @returns {{ newPlan:Array, adjustedWeeks:number, adjustedDays:number }}
+ */
+function applyDynamicAdjustmentToPlan(snapshot, assignment, todayStr, spec) {
+  const weeks = snapshot.plan_json ? snapshot.plan_json.map((w) => ({
+    ...w,
+    days: w.days.map((d) => ({ ...d })),
+  })) : [];
+
+  let adjustedWeeks = 0;
+  let adjustedDays = 0;
+
+  const startDate = parseDateISO(assignment.start_date);
+  const today = parseDateISO(todayStr);
+
+  for (let wi = 0; wi < weeks.length; wi++) {
+    const weekStart = addDays(startDate, wi * 7);
+    const weekEnd = addDays(weekStart, 6);
+    const weekIsFuture = formatDateISO(weekEnd) >= todayStr;
+
+    if (!weekIsFuture) continue; // 已完成的周跳过
+    const week = weeks[wi];
+
+    let adjustedThisWeek = false;
+    const daysPerWeek = week.days.length;
+    const dayMapFor4 = [0, 1, 3, 6];
+    const dayMapFor5 = [0, 1, 2, 3, 6];
+    const dayMapFor6 = [0, 1, 2, 3, 4, 6];
+    let dayMap = dayMapFor5;
+    if (daysPerWeek === 4) dayMap = dayMapFor4;
+    else if (daysPerWeek === 6) dayMap = dayMapFor6;
+
+    for (let di = 0; di < week.days.length; di++) {
+      const dayInWeek = dayMap[di];
+      const dayDate = addDays(weekStart, dayInWeek);
+      const dayDateStr = formatDateISO(dayDate);
+      if (dayDateStr < todayStr) continue; // 过去的日期不调
+
+      const day = week.days[di];
+      // 调整 detail（距离/分钟/RPE）
+      if (day.detail) {
+        day.detail = scaleDayDetail(day.detail, spec.loadMult, spec.rpeShift);
+      }
+      // 调整 title 中的 RPE 短语（极少情况）
+      if (day.title) {
+        day.title = scaleDayDetail(day.title, 1, spec.rpeShift);
+      }
+      // 如果 detail 中包含"配速"，按配速平移
+      if (day.detail && day.detail.includes("配速")) {
+        day.detail = shiftPaceHint(day.detail, spec.paceSecPer100);
+      }
+
+      day.__adjusted = true;
+      adjustedDays++;
+      adjustedThisWeek = true;
+    }
+
+    if (adjustedThisWeek) {
+      week.__adjusted = true;
+      adjustedWeeks++;
+    }
+  }
+
+  return { newPlan: weeks, adjustedWeeks, adjustedDays };
 }
 
 /* ---- /logs 训练日志历史页 ---- */

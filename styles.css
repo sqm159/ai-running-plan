@@ -1637,6 +1637,47 @@ textarea {
   color: #34443a;
 }
 
+/* ---- 动态调整卡片 ---- */
+.adjust-box {
+  border-left-color: #6366f1;
+  background: linear-gradient(180deg, #f5f6ff, #eef0ff);
+  margin-top: 16px;
+}
+.adjust-box h3 {
+  color: #3730a3;
+  margin: 0 0 8px;
+}
+.adjust-preview-inner {
+  background: white;
+  border-radius: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e0e7ff;
+}
+.adjust-preview-inner p {
+  margin: 0 0 6px;
+}
+
+/* 训练课调整标记 */
+.cal-day-adjusted {
+  outline: 2px solid #818cf8;
+  outline-offset: -2px;
+}
+.adjust-banner {
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.adjust-banner .adj-icon { font-size: 22px; }
+.adjust-banner .adj-body { flex: 1; min-width: 200px; }
+.adjust-banner h4 { margin: 0 0 4px; color: #3730a3; font-size: 15px; }
+.adjust-banner p { margin: 0; font-size: 13px; color: #4338ca; }
+
 /* ---- 训练日志历史页 ---- */
 .logs-grid {
   display: grid;
