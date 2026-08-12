@@ -1879,6 +1879,16 @@ textarea {
   font-size: 20px;
   color: white;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.platform-logo svg {
+  width: 30px;
+  height: 30px;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  /* SVG 自身加一点点阴影，保证在渐变背景上边缘更清晰 */
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.18));
 }
 .coros-brand .platform-logo { background: linear-gradient(135deg, #111827, #374151); }
 .garmin-brand .platform-logo { background: linear-gradient(135deg, #007CC3, #1AA7EC); color: #fff; }

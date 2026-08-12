@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 中长跑训练系统</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <nav class="nav">
+      <a class="brand" href="#/">
+        <span class="brand-mark">RUN</span>
+        <span>AI 中长跑训练系统</span>
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="#/" data-route="/">首页</a>
+        <a href="#/profile" data-route="/profile">运动档案</a>
+        <a href="#/performance" data-route="/performance">我的成绩</a>
+        <a href="#/analysis" data-route="/analysis">能力分析</a>
+        <a href="#/plan" data-route="/plan">训练计划</a>
+        <a href="#/calendar" data-route="/calendar">训练日历</a>
+        <a href="#/logs" data-route="/logs">训练日志</a>
+        <a href="#/sync" data-route="/sync">数据同步</a>
+      </div>
+      <div class="nav-auth" id="navAuth"><!-- 由 app.js 根据登录状态渲染 --></div>
+    </nav>
+  </header>
+
+  <!-- 路由出口：所有页面均由 app.js 渲染至此 -->
+  <main id="app" class="app-root"></main>
+
+  <footer class="site-footer">
+    <p>AI 中长跑训练系统 V2.0 · 个人账户 + 数据保存 + 多页面结构 + 训练日历 + 训练负荷 · 基于 Supabase 构建用户数据层</p>
+  </footer>
+
+  <!-- Supabase JS SDK（CDN，暴露 window.supabase.createClient） -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Supabase 配置（URL + anon key，需自行填写） -->
+  <script src="./supabase-config.js"></script>
+  <!-- 应用主逻辑 -->
+  <script src="./app.js"></script>
+</body>
+</html>
