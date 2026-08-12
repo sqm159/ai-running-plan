@@ -4441,7 +4441,6 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand coros-brand">
-              <div class="platform-text-logo">COROS</div>
               <div>
                 <h3>高驰 COROS</h3>
                 <p class="muted">推荐：导出 TCX 文件后上传导入</p>
@@ -4465,7 +4464,6 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand garmin-brand">
-              <div class="platform-text-logo">GARMIN</div>
               <div>
                 <h3>佳明 Garmin</h3>
                 <p class="muted">推荐：导出 FIT 原始文件（含跑步动态）</p>
@@ -4490,7 +4488,6 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand strava-brand">
-              <div class="platform-text-logo">STRAVA</div>
               <div>
                 <h3>Strava</h3>
                 <p class="muted">高驰/佳明同步 → Strava → 自动拉取</p>
