@@ -4441,18 +4441,9 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand coros-brand">
-              <div class="platform-logo" aria-label="COROS 高驰">
-                <svg viewBox="0 0 48 48" width="30" height="30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                  <!-- COROS 品牌标识：字母 C + 经典运动手表品牌线条风格 -->
-                  <defs>
-                    <linearGradient id="corosGlow" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
-                      <stop offset="100%" stop-color="#e5e7eb" stop-opacity="0.95"/>
-                    </linearGradient>
-                  </defs>
-                  <path d="M24 6 C13.5 6 5 14.5 5 25 C5 35.5 13.5 44 24 44 C28.5 44 32.7 42.5 36 40 L33.5 37.2 C30.7 39.2 27.5 40.4 24 40.4 C15.5 40.4 8.6 33.5 8.6 25 C8.6 16.5 15.5 9.6 24 9.6 C28.5 9.6 32.5 11.5 35.4 14.6 L31.9 17.2 C29.8 15 27 13.6 24 13.6 C17.7 13.6 12.6 18.7 12.6 25 C12.6 31.3 17.7 36.4 24 36.4 C26.9 36.4 29.5 35.5 31.7 34 L39 39.8 L42 34.6 L29 26 L24 26 L24 21.9 C24 21.9 36.5 21.9 36.5 24.9 L36.5 30 L41 28.3 L41 23.5 C41 14.3 33.5 6 24 6 Z"
-                        fill="url(#corosGlow)"/>
-                </svg>
+              <div class="platform-logo" aria-label="COROS 高驰官方 LOGO">
+                <img src="https://cdn.jsdelivr.net/npm/simple-icons@14.6.0/icons/coros.svg"
+                     alt="COROS" class="brand-icon" loading="lazy" />
               </div>
               <div>
                 <h3>高驰 COROS</h3>
@@ -4477,20 +4468,9 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand garmin-brand">
-              <div class="platform-logo" aria-label="Garmin 佳明">
-                <svg viewBox="0 0 48 48" width="30" height="30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                  <!-- Garmin 经典 G 箭头标志（简化矢量版，官方品牌白色剪影） -->
-                  <defs>
-                    <linearGradient id="garminWhite" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="#ffffff"/>
-                      <stop offset="100%" stop-color="#e6f6ff"/>
-                    </linearGradient>
-                  </defs>
-                  <!-- 外圈 C -->
-                  <path d="M24 6 C14.06 6 6 14.06 6 24 C6 33.94 14.06 42 24 42 C29.68 42 34.74 39.34 38.25 35.1 L34.8 31.6 C32.3 34.3 28.4 36 24 36 C17.37 36 12 30.63 12 24 C12 17.37 17.37 12 24 12 C29.6 12 34.2 15.9 35.7 21.1 L39.7 19.3 C38.03 12.02 31.74 6 24 6 Z" fill="url(#garminWhite)"/>
-                  <!-- 三角箭头（Garmin 标志最具辨识度的部分） -->
-                  <path d="M22 16.8 L39.6 24 L22 31.2 L22 22.9 H10.8 V25.1 H22 Z" fill="url(#garminWhite)"/>
-                </svg>
+              <div class="platform-logo" aria-label="Garmin 佳明官方 LOGO">
+                <img src="https://cdn.jsdelivr.net/npm/simple-icons@14.6.0/icons/garmin.svg"
+                     alt="Garmin" class="brand-icon" loading="lazy" />
               </div>
               <div>
                 <h3>佳明 Garmin</h3>
@@ -4516,20 +4496,9 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand strava-brand">
-              <div class="platform-logo" aria-label="Strava">
-                <svg viewBox="0 0 48 48" width="30" height="30" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                  <!-- Strava 品牌山峰图标（两个三角形，官方"两个登顶山峰"视觉符号） -->
-                  <defs>
-                    <linearGradient id="stravaPeak" x1="0" y1="1" x2="0" y2="0">
-                      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
-                      <stop offset="100%" stop-color="#ffffff"/>
-                    </linearGradient>
-                  </defs>
-                  <!-- 主峰（大三角，左高右低） -->
-                  <path d="M5 36 L15 12 L25 36 L20 36 L15 24 L10 36 Z" fill="url(#stravaPeak)"/>
-                  <!-- 次峰（小三角，两个叠一起是 Strava 标志） -->
-                  <path d="M26 36 L33 20 L40 36 L37 36 L33 28 L29 36 Z" fill="url(#stravaPeak)"/>
-                </svg>
+              <div class="platform-logo" aria-label="Strava 官方 LOGO">
+                <img src="https://cdn.jsdelivr.net/npm/simple-icons@14.6.0/icons/strava.svg"
+                     alt="Strava" class="brand-icon" loading="lazy" />
               </div>
               <div>
                 <h3>Strava</h3>

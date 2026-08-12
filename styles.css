@@ -1890,6 +1890,18 @@ textarea {
   /* SVG 自身加一点点阴影，保证在渐变背景上边缘更清晰 */
   filter: drop-shadow(0 1px 1px rgba(0,0,0,0.18));
 }
+/* Simple Icons 官方品牌 LOGO（CDN 引入，和手机 App 图标一致）
+   Simple Icons 源文件是黑色的，这里用 filter 把它反白到品牌背景上。 */
+.platform-logo .brand-icon {
+  width: 26px;
+  height: 26px;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  object-fit: contain;
+  /* black → pure white + 微阴影，保证在所有品牌色背景上清晰可见 */
+  filter: brightness(0) invert(1) drop-shadow(0 1px 1px rgba(0,0,0,0.2));
+}
 .coros-brand .platform-logo { background: linear-gradient(135deg, #111827, #374151); }
 .garmin-brand .platform-logo { background: linear-gradient(135deg, #007CC3, #1AA7EC); color: #fff; }
 .strava-brand .platform-logo { background: linear-gradient(135deg, #fc4c02, #ff874d); }
