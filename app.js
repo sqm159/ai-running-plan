@@ -4442,18 +4442,28 @@ async function renderSyncPage(app, user) {
           <div class="platform-card-head">
             <div class="platform-brand coros-brand">
               <div class="platform-logo" aria-label="COROS 高驰官方 LOGO">
-                <svg viewBox="0 0 64 64" width="38" height="38" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                  <!-- COROS 官方 LOGO：黑色圆底 + 三条红色弧线（速度计造型） -->
+                <!--
+                  COROS 官方 LOGO：黑圆底 + 三条红色弧线组成速度计造型
+                  圆心在底部中央，弧线从 7 点钟方向绕过顶部延伸到 5 点钟方向（240° 大弧）
+                  弧线粗细：外层最粗，中层中等，内层最细
+                -->
+                <svg viewBox="0 0 64 64" width="46" height="46" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <!-- 黑色圆底 -->
                   <circle cx="32" cy="32" r="30" fill="#000000"/>
-                  <!-- 最内层弧线（最细） -->
-                  <path d="M 18.8 27.2 A 14 14 0 0 0 45.2 27.2"
-                        fill="none" stroke="#e60012" stroke-width="2.4" stroke-linecap="round"/>
-                  <!-- 中间层弧线 -->
-                  <path d="M 14.1 25.5 A 19 19 0 0 0 49.9 25.5"
-                        fill="none" stroke="#e60012" stroke-width="3.6" stroke-linecap="round"/>
-                  <!-- 最外层弧线（最粗） -->
-                  <path d="M 9.5 23.8 A 24 24 0 0 0 54.5 23.8"
-                        fill="none" stroke="#e60012" stroke-width="5.2" stroke-linecap="round"/>
+                  <!--
+                    三条红色弧线（圆心在 (32, 42)，即底部中央）
+                    外层 r=24, 中层 r=17, 内层 r=10
+                    每条弧线从 7 点钟方向（左下方）绕过顶部到 5 点钟方向（右下方）
+                  -->
+                  <!-- 外层弧线（最粗，7px） -->
+                  <path d="M 11.22 54 A 24 24 0 1 1 52.78 54"
+                        fill="none" stroke="#ff0000" stroke-width="7" stroke-linecap="round"/>
+                  <!-- 中层弧线（5px） -->
+                  <path d="M 17.28 50.5 A 17 17 0 1 1 46.72 50.5"
+                        fill="none" stroke="#ff0000" stroke-width="5" stroke-linecap="round"/>
+                  <!-- 内层弧线（3px） -->
+                  <path d="M 23.34 47 A 10 10 0 1 1 40.66 47"
+                        fill="none" stroke="#ff0000" stroke-width="3" stroke-linecap="round"/>
                 </svg>
               </div>
               <div>
