@@ -1705,28 +1705,61 @@ async function authVerifyEmail(email, token) {
   return data;
 }
 
-/* ---- 手机号 OTP 认证模块（需配置 Twilio 后才能使用） ---- */
-// 发送验证码到手机号
+/* ---- 手机号 OTP 认证模块（通过腾讯云短信 + Cloudflare Workers 桥接） ---- */
+
+// 从 Worker 发送验证码到手机号
 async function authSendPhoneOTP(phone) {
-  const client = initSupabase();
-  const { data, error } = await client.auth.signInWithOtp({
-    phone,
-    options: { shouldCreateUser: true }
+  const workerUrl = getPhoneWorkerUrl();
+  if (!workerUrl) {
+    throw new Error("短信服务尚未配置，请联系管理员");
+  }
+  const resp = await fetch(workerUrl + "/send-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone })
   });
-  if (error) throw error;
-  return data;
+  const result = await resp.json();
+  if (!resp.ok || result.error) {
+    throw new Error(result.error || "验证码发送失败");
+  }
+  return result;
 }
 
 // 用手机号 + 验证码登录/注册
 async function authVerifyPhone(phone, token) {
-  const client = initSupabase();
-  const { data, error } = await client.auth.verifyOtp({
-    phone,
-    token,
-    type: "sms"
+  const workerUrl = getPhoneWorkerUrl();
+  if (!workerUrl) {
+    throw new Error("短信服务尚未配置，请联系管理员");
+  }
+  // 先用 Worker 验证 OTP
+  const resp = await fetch(workerUrl + "/verify-otp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, token })
   });
-  if (error) throw error;
-  return data;
+  const result = await resp.json();
+  if (!resp.ok || result.error) {
+    throw new Error(result.error || "验证码错误");
+  }
+  // 验证通过后，用 Worker 返回的签名信息在客户端完成 Supabase 登录
+  if (result.supabase_token) {
+    // Worker 已通过 admin API 创建/登录用户，返回了 session token
+    const client = initSupabase();
+    const { data, error } = await client.auth.setSession({
+      access_token: result.supabase_token.access_token,
+      refresh_token: result.supabase_token.refresh_token
+    });
+    if (error) throw error;
+    return data;
+  }
+  return result;
+}
+
+// 读取 Worker URL（从 supabase-config.js 或全局变量）
+function getPhoneWorkerUrl() {
+  if (typeof PHONE_WORKER_URL !== "undefined") return PHONE_WORKER_URL;
+  if (window.PHONE_WORKER_URL) return window.PHONE_WORKER_URL;
+  return "";
 }
 
 async function authSignOut() {
@@ -4585,10 +4618,15 @@ function sourceTypeLabel(type) {
     coros: "高驰 COROS",
     garmin: "佳明 Garmin",
     strava: "Strava",
+    apple: "Apple Watch",
+    huawei: "华为运动健康",
+    xiaomi: "小米 / Zepp Life",
+    amazfit: "华米 Amazfit",
+    suunto: "松拓 Suunto",
     file_tcx: "TCX 导入",
     file_gpx: "GPX 导入",
     file_csv: "CSV 导入",
-    file_fit: "FIT 导入 / 佳明",
+    file_fit: "FIT 导入",
   }[type] || type || "未知";
 }
 
@@ -4597,6 +4635,11 @@ function platformLabel(p) {
     coros: "高驰 COROS",
     strava: "Strava",
     garmin: "佳明 Garmin",
+    apple: "Apple Watch",
+    huawei: "华为运动健康",
+    xiaomi: "小米 / Zepp Life",
+    amazfit: "华米 Amazfit",
+    suunto: "松拓 Suunto",
   }[p] || p;
 }
 
@@ -4642,28 +4685,26 @@ async function renderSyncPage(app, user) {
   appRoot.innerHTML = `
     <section class="page sync-page">
       <header class="page-head">
-        <h2>数据同步 / 高驰 + 佳明导入</h2>
-        <p class="page-sub">从高驰（COROS）、佳明（Garmin）、Strava 等运动平台把训练数据自动导入到训练日历和日志。</p>
+        <h2>数据同步 / 多平台导入</h2>
+        <p class="page-sub">从高驰、佳明、Apple Watch、华为、小米、华米、松拓、Strava 等运动平台把训练数据自动导入到训练日历和日志。</p>
       </header>
 
       <!-- 提示条 -->
       <div class="sync-info-card">
         <div class="sync-info-icon">💡</div>
         <div class="sync-info-body">
-          <strong>快速上手（高驰 + 佳明通用）</strong>
+          <strong>快速上手（所有设备通用）</strong>
           <ol class="sync-steps">
-            <li><strong>佳明（Garmin）用户</strong>：打开佳明 Connect APP → 活动详情 → 右上角「…」→「导出原始文件 (FIT)」。或佳明官网 <code>connectcn.garmin.cn</code> → 活动详情 →「导出」。
-            </li>
-            <li><strong>高驰（COROS）用户</strong>：高驰 APP → 活动详情 → 右上角「…」→ 导出 → 选择 <strong>TCX</strong> 格式（推荐）。</li>
+            <li>在你的运动 APP 或设备中找到要导出的活动，选择<strong>导出文件</strong>（格式见下方各平台说明）。</li>
             <li>在下方 <strong>「批量上传文件」</strong> 区域把导出的 .fit / .tcx / .gpx / .csv 文件拖进来，或点击选择。</li>
             <li>系统会自动解析、去重、换算训练负荷，并写入你的训练日志。同一活动不会被重复导入。</li>
           </ol>
-          <p class="muted"><strong>格式选择指南：</strong>佳明推荐 <code>.fit</code>（原厂二进制，含步频/触地时间/垂直振幅等跑步动态）；高驰推荐 <code>.tcx</code>；通用互转选 <code>.gpx</code>；Excel 整理用 <code>.csv</code>。</p>
+          <p class="muted"><strong>格式选择指南：</strong>佳明推荐 <code>.fit</code>（原厂二进制，含步频/触地时间/垂直振幅等跑步动态）；高驰/松拓推荐 <code>.tcx</code>；Apple Watch / 华为 / 小米 / 华米推荐 <code>.gpx</code>；Excel 整理用 <code>.csv</code>。</p>
           <p class="muted"><strong>进阶：</strong>如果已经把高驰/佳明数据同步到 Strava，未来可以部署简单后端实现 Strava OAuth 自动拉取（本系统已预留连接表架构）。</p>
         </div>
       </div>
 
-      <!-- 平台连接卡片（预留 Strava OAuth 接口） -->
+      <!-- 平台连接卡片 -->
       <div class="card-grid">
         <article class="card platform-card">
           <div class="platform-card-head">
@@ -4714,25 +4755,145 @@ async function renderSyncPage(app, user) {
 
         <article class="card platform-card">
           <div class="platform-card-head">
+            <div class="platform-brand apple-brand">
+              <div>
+                <h3>Apple Watch</h3>
+                <p class="muted">通过「健康」或第三方 APP 导出 GPX</p>
+              </div>
+            </div>
+            <span class="badge badge-endurance">文件导入</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>导出方式：</strong></p>
+            <ul class="muted small">
+              <li><strong>方法一（推荐）</strong>：App Store 下载「RunGap」或「Wahoo Fitness」→ 同步 Apple Watch 数据 → 导出 GPX / TCX</li>
+              <li><strong>方法二</strong>：iPhone「健康」APP → 浏览 → 运动 → 导出数据（会生成 XML，可用在线工具转 GPX）</li>
+              <li><strong>方法三</strong>：将 Apple Watch 数据同步到 Strava → 在 Strava 导出 TCX</li>
+            </ul>
+            <p><strong>支持格式：</strong><code>.gpx</code>（推荐）、<code>.tcx</code>、<code>.csv</code></p>
+          </div>
+          <div class="platform-card-foot">
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+          </div>
+        </article>
+
+        <article class="card platform-card">
+          <div class="platform-card-head">
+            <div class="platform-brand huawei-brand">
+              <div>
+                <h3>华为运动健康</h3>
+                <p class="muted">华为手表 / 手环 GPX 导出</p>
+              </div>
+            </div>
+            <span class="badge badge-endurance">文件导入</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>导出方式：</strong></p>
+            <ul class="muted small">
+              <li>华为运动健康 APP → 运动 → 运动记录 → 选择活动 → 分享/导出 → GPX</li>
+              <li>华为运动健康云（cloud.huawei.com）→ 运动数据 → 导出 GPX</li>
+              <li>部分华为手表支持直接在手表上导出到手机</li>
+            </ul>
+            <p><strong>支持格式：</strong><code>.gpx</code>（推荐）、<code>.tcx</code>、<code>.csv</code></p>
+          </div>
+          <div class="platform-card-foot">
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+          </div>
+        </article>
+
+        <article class="card platform-card">
+          <div class="platform-card-head">
+            <div class="platform-brand xiaomi-brand">
+              <div>
+                <h3>小米 / Zepp Life</h3>
+                <p class="muted">小米手环 / 小米手表 GPX 导出</p>
+              </div>
+            </div>
+            <span class="badge badge-endurance">文件导入</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>导出方式：</strong></p>
+            <ul class="muted small">
+              <li>Zepp Life（原 Mi Fit）APP → 运动记录 → 选择活动 → 导出 GPX</li>
+              <li>小米运动健康 APP → 运动记录 → 分享 → 保存 GPX 文件</li>
+              <li>部分小米手表（S 系列）支持在手表上导出</li>
+            </ul>
+            <p><strong>支持格式：</strong><code>.gpx</code>、<code>.csv</code></p>
+          </div>
+          <div class="platform-card-foot">
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+          </div>
+        </article>
+
+        <article class="card platform-card">
+          <div class="platform-card-head">
+            <div class="platform-brand amazfit-brand">
+              <div>
+                <h3>华米 Amazfit</h3>
+                <p class="muted">Amazfit 手表 GPX / TCX 导出</p>
+              </div>
+            </div>
+            <span class="badge badge-endurance">文件导入</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>导出方式：</strong></p>
+            <ul class="muted small">
+              <li>Zepp APP（原 Amazfit）→ 运动记录 → 选择活动 → 导出 GPX</li>
+              <li>Zepp 官网 app.zepp.com → 运动数据 → 导出</li>
+              <li>部分 Amazfit 手表支持蓝牙直传 GPX 到手机</li>
+            </ul>
+            <p><strong>支持格式：</strong><code>.gpx</code>（推荐）、<code>.tcx</code>、<code>.csv</code></p>
+          </div>
+          <div class="platform-card-foot">
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+          </div>
+        </article>
+
+        <article class="card platform-card">
+          <div class="platform-card-head">
+            <div class="platform-brand suunto-brand">
+              <div>
+                <h3>松拓 Suunto</h3>
+                <p class="muted">推荐：导出 FIT 或 GPX 文件</p>
+              </div>
+            </div>
+            <span class="badge badge-endurance">文件导入</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>导出方式：</strong></p>
+            <ul class="muted small">
+              <li>Suunto APP：运动记录 → 选择活动 → 分享 → 导出 GPX / FIT</li>
+              <li>Suunto 网页版（suunto.com）→ Moves → 选择活动 → 导出 FIT / GPX / TCX</li>
+              <li>部分 Suunto 手表可通过 Suunto Link 桌面端导出</li>
+            </ul>
+            <p><strong>支持格式：</strong><code>.fit</code>、<code>.gpx</code>、<code>.tcx</code>、<code>.csv</code></p>
+          </div>
+          <div class="platform-card-foot">
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+          </div>
+        </article>
+
+        <article class="card platform-card">
+          <div class="platform-card-head">
             <div class="platform-brand strava-brand">
               <div>
                 <h3>Strava</h3>
-                <p class="muted">高驰/佳明同步 → Strava → 自动拉取</p>
+                <p class="muted">导出 TCX 文件上传或未来自动拉取</p>
               </div>
             </div>
-            <span class="badge badge-balanced">需要后端支持</span>
+            <span class="badge badge-balanced">文件导入</span>
           </div>
           <div class="platform-card-body">
-            <p><strong>流程：</strong></p>
+            <p><strong>导出方式：</strong></p>
             <ul class="muted small">
-              <li>高驰 APP / 佳明 Connect → 设置 → 第三方连接 → 绑定 Strava</li>
-              <li>每次运动后会自动同步到 Strava</li>
-              <li>需要部署 OAuth 回调后端（Node/Cloudflare Workers）才能自动拉取</li>
+              <li>Strava 网页版 → 活动详情 → 菜单（…）→ 导出 TCX</li>
+              <li>Strava APP：活动详情 → 分享 → 导出 GPX</li>
             </ul>
-            <p class="muted small"><strong>替代方案：</strong>Strava 活动详情 → 菜单 → 导出 TCX → 按文件方式上传</p>
+            <p class="muted small"><strong>进阶：</strong>高驰/佳明数据可先同步到 Strava，未来部署后端后可自动拉取。</p>
           </div>
           <div class="platform-card-foot">
-            <button class="ghost-button" id="stravaHelpBtn">查看 Strava 对接说明</button>
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+            <button class="ghost-button" id="stravaHelpBtn">查看 Strava 自动对接说明</button>
           </div>
         </article>
       </div>
@@ -4769,12 +4930,12 @@ async function renderSyncPage(app, user) {
 
       <!-- 上传区域 -->
       <section class="section" id="file-drop-area">
-        <h3 class="section-title">批量上传文件（支持佳明 FIT / 高驰 TCX / GPX / CSV）</h3>
+        <h3 class="section-title">批量上传文件（支持 FIT / TCX / GPX / CSV，所有设备通用）</h3>
 
         <div class="upload-zone" id="uploadZone">
           <div class="upload-zone-icon">📤</div>
           <h4>拖拽文件到这里，或点击选择文件</h4>
-          <p class="muted">支持 <strong>.fit</strong>（佳明原厂）、<strong>.tcx</strong>、<strong>.gpx</strong>、<strong>.csv</strong>，可多选，系统会自动合并导入并去重。</p>
+          <p class="muted">支持 <strong>.fit</strong>（佳明/松拓）、<strong>.tcx</strong>（高驰/Strava）、<strong>.gpx</strong>（Apple/华为/小米/华米）、<strong>.csv</strong>，可多选，系统会自动合并导入并去重。</p>
           <input type="file" id="fileInput" multiple accept=".fit,.tcx,.gpx,.csv,application/xml,text/csv,application/octet-stream" hidden />
           <button class="primary-button" id="pickFilesBtn">选择文件</button>
         </div>

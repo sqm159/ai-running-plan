@@ -1927,9 +1927,7 @@ textarea {
   line-height: 1.1;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
-.coros-brand .platform-text-logo { background: linear-gradient(135deg, #111827, #374151); }
-.garmin-brand .platform-text-logo { background: linear-gradient(135deg, #007CC3, #1AA7EC); }
-.strava-brand .platform-text-logo { background: linear-gradient(135deg, #fc4c02, #ff874d); }
+
 
 .platform-brand h3 {
   margin: 0;
