@@ -4442,29 +4442,8 @@ async function renderSyncPage(app, user) {
           <div class="platform-card-head">
             <div class="platform-brand coros-brand">
               <div class="platform-logo" aria-label="COROS 高驰官方 LOGO">
-                <!--
-                  COROS 官方 LOGO（直接从 coros.com 官网提取的真实矢量，1:1 还原）
-                  圆形黑底 + 红色左转箭头（速度计造型）+ 红色水平线
-                  官方源 SVG viewBox: 0 0 45 34
-                  嵌入到 64x64 黑圆底中央居中
-                -->
-                <svg viewBox="0 0 64 64" width="46" height="46" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                  <!-- 黑色圆形背景（COROS 官方 App 图标底色） -->
-                  <circle cx="32" cy="32" r="31" fill="#000000"/>
-                  <!--
-                    真实 COROS 品牌标志：
-                    1) 左转六角箭头（指向左方，官方核心图形）
-                    2) 一条速度水平线（速度计造型）
-                    填充颜色：COROS 官方品牌红 #FF1F2E
-                    viewBox 0 0 45 34 → 居中到 64x64 → 偏移 (x=9.5, y=15)，等比缩放到宽 45，高 34
-                  -->
-                  <g transform="translate(9.5 15) scale(1)">
-                    <path d="M20.0327 2.8765 L5.17725 17.0005 L20.0327 31.1236 L17.9663 33.2974 L1.96631 18.0874 L0.822754 16.9995 L1.96631 15.9126 L17.9663 0.702667 L20.0327 2.8765 Z"
-                          fill="#FF1F2E"/>
-                    <path d="M40.9995 18.4995 H14.9995 V15.4995 H40.9995 V18.4995 Z"
-                          fill="#FF1F2E"/>
-                  </g>
-                </svg>
+                <img src="https://staticcn.coros.com/coros-v2/images/378531e87be9ee39d95877a1fe24f5dc.png"
+                     alt="COROS" class="brand-icon-coros" loading="lazy" />
               </div>
               <div>
                 <h3>高驰 COROS</h3>
