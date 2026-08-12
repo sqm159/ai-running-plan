@@ -1681,7 +1681,31 @@ async function authSignIn(email, password) {
   return data;
 }
 
-/* ---- 手机号 OTP 认证模块 ---- */
+/* ---- 邮箱验证码 OTP 认证模块 ---- */
+// 发送验证码到邮箱
+async function authSendEmailOTP(email) {
+  const client = initSupabase();
+  const { data, error } = await client.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: true }
+  });
+  if (error) throw error;
+  return data;
+}
+
+// 用邮箱 + 验证码登录/注册
+async function authVerifyEmail(email, token) {
+  const client = initSupabase();
+  const { data, error } = await client.auth.verifyOtp({
+    email,
+    token,
+    type: "email"
+  });
+  if (error) throw error;
+  return data;
+}
+
+/* ---- 手机号 OTP 认证模块（需配置 Twilio 后才能使用） ---- */
 // 发送验证码到手机号
 async function authSendPhoneOTP(phone) {
   const client = initSupabase();
@@ -3138,28 +3162,53 @@ async function renderAuthPage(app, user) {
     <section class="auth-wrap">
       <div class="auth-card">
         <div class="auth-method-tabs">
-          <button class="auth-method-tab active" data-method="email" id="methodEmail">邮箱登录</button>
+          <button class="auth-method-tab active" data-method="password" id="methodPassword">密码登录</button>
+          <button class="auth-method-tab" data-method="emailOtp" id="methodEmailOtp">邮箱验证码</button>
           <button class="auth-method-tab" data-method="phone" id="methodPhone">手机号登录</button>
         </div>
 
-        <!-- 邮箱模式 -->
-        <div class="auth-tabs" id="emailTabs">
-          <button class="auth-tab active" data-mode="signin" id="tabSignin">登录</button>
-          <button class="auth-tab" data-mode="signup" id="tabSignup">注册</button>
-        </div>
-        <form class="auth-form" id="authForm">
-          <div id="emailFields">
+        <!-- 密码模式 -->
+        <div id="passwordMode">
+          <div class="auth-tabs">
+            <button class="auth-tab active" data-mode="signin" id="tabSignin">登录</button>
+            <button class="auth-tab" data-mode="signup" id="tabSignup">注册</button>
+          </div>
+          <form class="auth-form" id="authFormPassword">
             <label>
               邮箱
-              <input id="authEmail" type="email" placeholder="you@example.com" required autocomplete="email" />
+              <input id="authEmailPwd" type="email" placeholder="you@example.com" required autocomplete="email" />
             </label>
             <label>
               密码
               <input id="authPassword" type="password" placeholder="至少 6 位" required autocomplete="current-password" minlength="6" />
             </label>
-          </div>
+            <button class="primary-button full" type="submit" id="submitPwd">登录</button>
+            <p class="auth-hint" id="hintPwd">已有账户？输入邮箱密码即可登录。新用户请点击「注册」。</p>
+          </form>
+        </div>
 
-          <div id="phoneFields" style="display:none">
+        <!-- 邮箱验证码模式 -->
+        <div id="emailOtpMode" style="display:none">
+          <form class="auth-form" id="authFormEmailOtp">
+            <label>
+              邮箱
+              <input id="authEmailOtp" type="email" placeholder="you@example.com" required autocomplete="email" />
+            </label>
+            <div class="phone-otp-row">
+              <label style="flex:1">
+                验证码
+                <input id="emailOtpCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" autocomplete="one-time-code" />
+              </label>
+              <button type="button" class="secondary-button otp-btn" id="sendEmailOtpBtn">发送验证码</button>
+            </div>
+            <button class="primary-button full" type="submit" id="submitEmailOtp">验证码登录</button>
+            <p class="auth-hint">输入邮箱 → 发送验证码 → 输入验证码即可登录/注册。无需记密码。</p>
+          </form>
+        </div>
+
+        <!-- 手机号模式 -->
+        <div id="phoneMode" style="display:none">
+          <form class="auth-form" id="authFormPhone">
             <label>
               手机号
               <input id="authPhone" type="tel" placeholder="+86 138 0000 0000" autocomplete="tel" />
@@ -3167,140 +3216,132 @@ async function renderAuthPage(app, user) {
             <div class="phone-otp-row">
               <label style="flex:1">
                 验证码
-                <input id="authOtp" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" autocomplete="one-time-code" />
+                <input id="phoneOtpCode" type="text" inputmode="numeric" maxlength="6" placeholder="6 位验证码" autocomplete="one-time-code" />
               </label>
-              <button type="button" class="secondary-button otp-btn" id="sendOtpBtn">发送验证码</button>
+              <button type="button" class="secondary-button otp-btn" id="sendPhoneOtpBtn">发送验证码</button>
             </div>
-          </div>
-
-          <button class="primary-button full" type="submit" id="authSubmit">登录</button>
-          <p class="auth-hint" id="authHint">已有账户？输入邮箱密码即可登录。新用户请点击「注册」。</p>
-        </form>
+            <button class="primary-button full" type="submit" id="submitPhone">验证码登录</button>
+            <p class="auth-hint">输入手机号 → 发送验证码 → 输入验证码即可登录/注册。无需记密码。</p>
+          </form>
+        </div>
       </div>
     </section>
   `;
 
+  // 密码模式
   let mode = "signin";
-  let method = "email";
-  let otpSent = false;
-  let otpTimer = 0;
-
+  const passwordMode = document.getElementById("passwordMode");
+  const emailOtpMode = document.getElementById("emailOtpMode");
+  const phoneMode = document.getElementById("phoneMode");
+  const methodPassword = document.getElementById("methodPassword");
+  const methodEmailOtp = document.getElementById("methodEmailOtp");
+  const methodPhone = document.getElementById("methodPhone");
   const tabSignin = document.getElementById("tabSignin");
   const tabSignup = document.getElementById("tabSignup");
-  const submitBtn = document.getElementById("authSubmit");
-  const hint = document.getElementById("authHint");
-  const emailTabs = document.getElementById("emailTabs");
-  const emailFields = document.getElementById("emailFields");
-  const phoneFields = document.getElementById("phoneFields");
-  const methodEmail = document.getElementById("methodEmail");
-  const methodPhone = document.getElementById("methodPhone");
-  const sendOtpBtn = document.getElementById("sendOtpBtn");
+  const submitPwd = document.getElementById("submitPwd");
+  const hintPwd = document.getElementById("hintPwd");
 
   function setMode(next) {
     mode = next;
     tabSignin.classList.toggle("active", mode === "signin");
     tabSignup.classList.toggle("active", mode === "signup");
-    submitBtn.textContent = mode === "signin" ? "登录" : "注册";
-    if (method === "phone") {
-      hint.textContent = "输入手机号 → 发送验证码 → 输入验证码即可登录/注册。";
-    } else if (mode === "signin") {
-      hint.textContent = "已有账户？输入邮箱密码即可登录。新用户请点击「注册」。";
+    submitPwd.textContent = mode === "signin" ? "登录" : "注册";
+    if (mode === "signin") {
+      hintPwd.textContent = "已有账户？输入邮箱密码即可登录。新用户请点击「注册」。";
     } else {
-      hint.textContent = "注册后即可保存运动档案、成绩和分析结果。请使用至少 6 位密码。";
+      hintPwd.textContent = "注册后即可保存运动档案、成绩和分析结果。请使用至少 6 位密码。";
     }
   }
 
   function setMethod(next) {
-    method = next;
-    methodEmail.classList.toggle("active", method === "email");
-    methodPhone.classList.toggle("active", method === "phone");
-    emailFields.style.display = method === "email" ? "" : "none";
-    phoneFields.style.display = method === "phone" ? "" : "none";
-    emailTabs.style.display = method === "email" ? "" : "none";
-    if (method === "phone") {
-      submitBtn.textContent = "验证码登录";
-      hint.textContent = "输入手机号 → 发送验证码 → 输入验证码即可登录/注册。";
-    } else {
-      submitBtn.textContent = mode === "signin" ? "登录" : "注册";
-      setMode(mode);
-    }
+    methodPassword.classList.toggle("active", next === "password");
+    methodEmailOtp.classList.toggle("active", next === "emailOtp");
+    methodPhone.classList.toggle("active", next === "phone");
+    passwordMode.style.display = next === "password" ? "" : "none";
+    emailOtpMode.style.display = next === "emailOtp" ? "" : "none";
+    phoneMode.style.display = next === "phone" ? "" : "none";
   }
 
-  methodEmail.addEventListener("click", () => setMethod("email"));
+  methodPassword.addEventListener("click", () => setMethod("password"));
+  methodEmailOtp.addEventListener("click", () => setMethod("emailOtp"));
   methodPhone.addEventListener("click", () => setMethod("phone"));
   tabSignin.addEventListener("click", () => setMode("signin"));
   tabSignup.addEventListener("click", () => setMode("signup"));
 
-  // 发送验证码
-  sendOtpBtn.addEventListener("click", async () => {
+  // 发送邮箱验证码
+  const sendEmailOtpBtn = document.getElementById("sendEmailOtpBtn");
+  sendEmailOtpBtn.addEventListener("click", async () => {
+    const email = getFieldValue("authEmailOtp").trim();
+    if (!email) {
+      showToast("请输入邮箱", "error");
+      return;
+    }
+    sendEmailOtpBtn.disabled = true;
+    sendEmailOtpBtn.textContent = "发送中…";
+    try {
+      await authSendEmailOTP(email);
+      showToast("验证码已发送，请查收邮箱", "success");
+      let countdown = 60;
+      const timer = setInterval(() => {
+        countdown--;
+        if (countdown <= 0) {
+          clearInterval(timer);
+          sendEmailOtpBtn.disabled = false;
+          sendEmailOtpBtn.textContent = "重新发送";
+        } else {
+          sendEmailOtpBtn.textContent = countdown + "s 后重发";
+        }
+      }, 1000);
+    } catch (err) {
+      showToast(err.message || "验证码发送失败", "error");
+      sendEmailOtpBtn.disabled = false;
+      sendEmailOtpBtn.textContent = "发送验证码";
+    }
+  });
+
+  // 发送手机验证码
+  const sendPhoneOtpBtn = document.getElementById("sendPhoneOtpBtn");
+  sendPhoneOtpBtn.addEventListener("click", async () => {
     const phone = getFieldValue("authPhone").trim();
     if (!phone) {
       showToast("请输入手机号", "error");
       return;
     }
-    // 确保号码带 +86 前缀
     const fullPhone = phone.startsWith("+") ? phone : "+86" + phone.replace(/[\s\-]/g, "");
-    sendOtpBtn.disabled = true;
-    sendOtpBtn.textContent = "发送中…";
+    sendPhoneOtpBtn.disabled = true;
+    sendPhoneOtpBtn.textContent = "发送中…";
     try {
       await authSendPhoneOTP(fullPhone);
-      otpSent = true;
       showToast("验证码已发送", "success");
-      // 60 秒倒计时
-      otpTimer = 60;
-      const countdown = setInterval(() => {
-        otpTimer--;
-        if (otpTimer <= 0) {
-          clearInterval(countdown);
-          sendOtpBtn.disabled = false;
-          sendOtpBtn.textContent = "重新发送";
+      let countdown = 60;
+      const timer = setInterval(() => {
+        countdown--;
+        if (countdown <= 0) {
+          clearInterval(timer);
+          sendPhoneOtpBtn.disabled = false;
+          sendPhoneOtpBtn.textContent = "重新发送";
         } else {
-          sendOtpBtn.textContent = otpTimer + "s 后重发";
+          sendPhoneOtpBtn.textContent = countdown + "s 后重发";
         }
       }, 1000);
     } catch (err) {
-      showToast(err.message || "验证码发送失败", "error");
-      sendOtpBtn.disabled = false;
-      sendOtpBtn.textContent = "发送验证码";
+      showToast(err.message || "验证码发送失败，请确认已配置短信服务", "error");
+      sendPhoneOtpBtn.disabled = false;
+      sendPhoneOtpBtn.textContent = "发送验证码";
     }
   });
 
-  document.getElementById("authForm").addEventListener("submit", async (e) => {
+  // 密码模式提交
+  document.getElementById("authFormPassword").addEventListener("submit", async (e) => {
     e.preventDefault();
-
-    // 手机号模式
-    if (method === "phone") {
-      const phone = getFieldValue("authPhone").trim();
-      const token = getFieldValue("authOtp").trim();
-      if (!phone || !token) {
-        showToast("请输入手机号和验证码", "error");
-        return;
-      }
-      const fullPhone = phone.startsWith("+") ? phone : "+86" + phone.replace(/[\s\-]/g, "");
-      submitBtn.disabled = true;
-      submitBtn.textContent = "验证中…";
-      try {
-        await authVerifyPhone(fullPhone, token);
-        showToast("登录成功", "success");
-        navigate("/");
-      } catch (err) {
-        showToast(err.message || "验证码错误", "error");
-      } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = "验证码登录";
-      }
-      return;
-    }
-
-    // 邮箱模式
-    const email = getFieldValue("authEmail").trim();
+    const email = getFieldValue("authEmailPwd").trim();
     const password = getFieldValue("authPassword");
     if (!email || !password) {
       showToast("请填写邮箱和密码", "error");
       return;
     }
-    submitBtn.disabled = true;
-    submitBtn.textContent = mode === "signin" ? "登录中…" : "注册中…";
+    submitPwd.disabled = true;
+    submitPwd.textContent = mode === "signin" ? "登录中…" : "注册中…";
     try {
       if (mode === "signup") {
         const data = await authSignUp(email, password);
@@ -3319,8 +3360,57 @@ async function renderAuthPage(app, user) {
     } catch (err) {
       showToast(err.message || "操作失败", "error");
     } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = mode === "signin" ? "登录" : "注册";
+      submitPwd.disabled = false;
+      submitPwd.textContent = mode === "signin" ? "登录" : "注册";
+    }
+  });
+
+  // 邮箱验证码模式提交
+  const submitEmailOtp = document.getElementById("submitEmailOtp");
+  document.getElementById("authFormEmailOtp").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = getFieldValue("authEmailOtp").trim();
+    const token = getFieldValue("emailOtpCode").trim();
+    if (!email || !token) {
+      showToast("请输入邮箱和验证码", "error");
+      return;
+    }
+    submitEmailOtp.disabled = true;
+    submitEmailOtp.textContent = "验证中…";
+    try {
+      await authVerifyEmail(email, token);
+      showToast("登录成功", "success");
+      navigate("/");
+    } catch (err) {
+      showToast(err.message || "验证码错误", "error");
+    } finally {
+      submitEmailOtp.disabled = false;
+      submitEmailOtp.textContent = "验证码登录";
+    }
+  });
+
+  // 手机号验证码模式提交
+  const submitPhone = document.getElementById("submitPhone");
+  document.getElementById("authFormPhone").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const phone = getFieldValue("authPhone").trim();
+    const token = getFieldValue("phoneOtpCode").trim();
+    if (!phone || !token) {
+      showToast("请输入手机号和验证码", "error");
+      return;
+    }
+    const fullPhone = phone.startsWith("+") ? phone : "+86" + phone.replace(/[\s\-]/g, "");
+    submitPhone.disabled = true;
+    submitPhone.textContent = "验证中…";
+    try {
+      await authVerifyPhone(fullPhone, token);
+      showToast("登录成功", "success");
+      navigate("/");
+    } catch (err) {
+      showToast(err.message || "验证码错误", "error");
+    } finally {
+      submitPhone.disabled = false;
+      submitPhone.textContent = "验证码登录";
     }
   });
 }
