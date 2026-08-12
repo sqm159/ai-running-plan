@@ -4441,10 +4441,7 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand coros-brand">
-              <div class="platform-logo" aria-label="COROS 高驰官方 LOGO">
-                <img src="https://staticcn.coros.com/coros-v2/images/378531e87be9ee39d95877a1fe24f5dc.png"
-                     alt="COROS" class="brand-icon-coros" loading="lazy" />
-              </div>
+              <div class="platform-text-logo">COROS</div>
               <div>
                 <h3>高驰 COROS</h3>
                 <p class="muted">推荐：导出 TCX 文件后上传导入</p>
@@ -4468,10 +4465,7 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand garmin-brand">
-              <div class="platform-logo" aria-label="Garmin 佳明官方 LOGO">
-                <img src="https://cdn.jsdelivr.net/npm/simple-icons@14.6.0/icons/garmin.svg"
-                     alt="Garmin" class="brand-icon" loading="lazy" />
-              </div>
+              <div class="platform-text-logo">GARMIN</div>
               <div>
                 <h3>佳明 Garmin</h3>
                 <p class="muted">推荐：导出 FIT 原始文件（含跑步动态）</p>
@@ -4496,10 +4490,7 @@ async function renderSyncPage(app, user) {
         <article class="card platform-card">
           <div class="platform-card-head">
             <div class="platform-brand strava-brand">
-              <div class="platform-logo" aria-label="Strava 官方 LOGO">
-                <img src="https://cdn.jsdelivr.net/npm/simple-icons@14.6.0/icons/strava.svg"
-                     alt="Strava" class="brand-icon" loading="lazy" />
-              </div>
+              <div class="platform-text-logo">STRAVA</div>
               <div>
                 <h3>Strava</h3>
                 <p class="muted">高驰/佳明同步 → Strava → 自动拉取</p>
