@@ -494,6 +494,49 @@ textarea {
   line-height: 1.6;
 }
 
+/* 邮箱/手机号 切换 Tab */
+.auth-method-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 5px;
+  border-radius: 999px;
+  background: #f0f4f1;
+}
+.auth-method-tab {
+  flex: 1;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.auth-method-tab.active {
+  background: white;
+  color: var(--green-dark);
+  box-shadow: 0 4px 12px rgba(22, 42, 30, 0.08);
+}
+
+/* 验证码行 */
+.phone-otp-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.phone-otp-row label {
+  flex: 1;
+}
+.otp-btn {
+  white-space: nowrap;
+  min-width: 110px;
+  justify-content: center;
+  padding: 11px 16px;
+}
+
 .config-warn {
   border: 1px solid rgba(214, 122, 44, 0.3);
   border-radius: 18px;
