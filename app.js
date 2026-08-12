@@ -2371,27 +2371,246 @@ function simpleHash(str) {
   return "h" + h.toString(16).padStart(8, "0");
 }
 
+/* ---- FIT 二进制解析（Garmin / 佳明标准活动格式） ---- */
+/*
+ * 使用 fit-file-parser（CDN 引入，window.FitParser）。
+ * FIT 文件包含：activity / sessions（汇总）/ records（逐点采样）/ laps / events。
+ * 这里只使用 sessions 汇总 + records 兜底，得到跑步活动核心字段。
+ */
+async function parseFIT(buffer) {
+  if (typeof window === "undefined" || !window.FitParser) {
+    throw new Error("FIT 解析库未加载，请检查网络（fit-file-parser CDN）。");
+  }
+  const FitParser = window.FitParser;
+  const parser = new FitParser({
+    force: true,
+    speedUnit: "m/s",
+    lengthUnit: "m",
+    temperatureUnit: "celsius",
+    elapsedRecordField: true,
+    mode: "both",
+  });
+
+  const data = await new Promise((resolve, reject) => {
+    parser.parse(buffer, (err, fitData) => {
+      if (err) return reject(new Error(`FIT 解析失败：${err.message || err}`));
+      resolve(fitData);
+    });
+  });
+
+  const sessions = (data && data.sessions) || [];
+  const records = (data && data.records) || [];
+  if (!sessions.length && !records.length) {
+    throw new Error("FIT 文件中未找到活动数据（无 sessions / records）。");
+  }
+
+  const results = [];
+  // 若有 session 就以 session 为主
+  const iterSessions = sessions.length ? sessions : [buildVirtualSessionFromRecords(records)];
+  for (const sess of iterSessions) {
+    const startTime = sess.start_time || sess.timestamp || null; // Date
+    const startTimeMs = startTime ? startTime.getTime() : null;
+    const startTimeISO = startTime ? startTime.toISOString() : null;
+    const startDate = startTime ? formatDateISO(startTime) : null;
+
+    const totalTimeSec = Number(
+      sess.total_timer_time ?? sess.total_elapsed_time ?? sess.total_moving_time ?? 0
+    );
+    const totalDistanceM = Number(sess.total_distance ?? 0);
+    const avgHr = clampHr(sess.avg_heart_rate);
+    const maxHr = clampHr(sess.max_heart_rate);
+    const calories = Number(sess.total_calories ?? 0);
+    const avgSpeedMps = Number(sess.avg_speed ?? 0);
+
+    // 如果 session 里没有心率，遍历 records 兜底
+    let effectiveAvgHr = avgHr;
+    if (!effectiveAvgHr && records.length) {
+      const hrs = [];
+      for (const r of records) {
+        const h = clampHr(r.heart_rate);
+        if (h) hrs.push(h);
+      }
+      if (hrs.length) {
+        effectiveAvgHr = Math.round(hrs.reduce((s, v) => s + v, 0) / hrs.length);
+      }
+    }
+
+    // 运动类型映射（FIT 里 sport 可能是数字或字符串）
+    const sportRaw = typeof sess.sport === "number"
+      ? fitSportEnumToName(sess.sport)
+      : String(sess.sport || "");
+    const isRunning = /run/i.test(sportRaw) || /跑/.test(sportRaw);
+
+    const durationMin = totalTimeSec ? Math.round((totalTimeSec / 60) * 10) / 10 : null;
+    const distanceKm = totalDistanceM ? Math.round((totalDistanceM / 1000) * 100) / 100 : null;
+    const avgPaceMinPerKm = distanceKm && durationMin
+      ? Math.round((durationMin / distanceKm) * 10) / 10
+      : null;
+
+    // RPE 估算（同 TCX/GPX 策略：平均心率近似）
+    let rpe = null;
+    if (effectiveAvgHr) {
+      if (effectiveAvgHr < 130) rpe = 6;
+      else if (effectiveAvgHr < 145) rpe = 8;
+      else if (effectiveAvgHr < 160) rpe = 11;
+      else if (effectiveAvgHr < 172) rpe = 13;
+      else if (effectiveAvgHr < 182) rpe = 15;
+      else rpe = 17;
+    }
+
+    const title = isRunning
+      ? "佳明跑步活动"
+      : (sportRaw ? `${sportRaw} 活动` : "FIT 导入活动");
+    const detail = sportRaw ? `运动类型：${sportRaw}` : "";
+
+    // 去重 ID：开始时间+距离+时长
+    const rawExternal = `${startTimeISO || startTimeMs || ""}-${Math.round(totalDistanceM)}-${Math.round(totalTimeSec)}`;
+    const externalId = simpleHash(rawExternal);
+
+    results.push({
+      source_type: "file_fit",
+      external_id: externalId,
+      log_date: startDate,
+      planned_title: title,
+      planned_detail: detail,
+      status: "completed",
+      duration_min: durationMin,
+      distance_km: distanceKm,
+      avg_hr: effectiveAvgHr,
+      rpe,
+      feeling: null,
+      note: null,
+      external_raw_json: {
+        format: "fit",
+        sport: sportRaw || null,
+        startTime: startTimeISO,
+        totalTimeSec: Math.round(totalTimeSec),
+        totalDistanceM: Math.round(totalDistanceM),
+        totalCalories: calories || null,
+        avgSpeedMps: avgSpeedMps || null,
+        maxHr: maxHr || null,
+        avgPaceMinPerKm,
+        numLaps: (data && Array.isArray(data.laps)) ? data.laps.length : null,
+        numRecords: records.length || null,
+        sessionMessage: stripDateFields(sess),
+      },
+    });
+  }
+
+  return results;
+}
+
+function clampHr(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  if (n < 30 || n > 230) return null;
+  return Math.round(n);
+}
+
+// 从逐点 record 构造一个"虚拟 session"（仅用于 FIT 文件缺失 session 的罕见情况）
+function buildVirtualSessionFromRecords(records) {
+  if (!records || !records.length) return {};
+  let start = null;
+  let end = null;
+  let distM = 0;
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    const t = r.timestamp || r.time_created;
+    if (t) {
+      if (!start) start = t;
+      end = t;
+    }
+    const d = Number(r.distance || 0);
+    if (d > distM) distM = d;
+  }
+  const totalSec = start && end ? (end.getTime() - start.getTime()) / 1000 : 0;
+  return {
+    start_time: start,
+    total_timer_time: totalSec,
+    total_distance: distM,
+    sport: "running",
+  };
+}
+
+// FIT 标准 sport 枚举（常用值，不全）
+function fitSportEnumToName(n) {
+  const map = {
+    0: "Generic", 1: "Running", 2: "Cycling", 3: "Transition",
+    4: "Fitness Equipment", 5: "Swimming", 6: "Basketball", 7: "Soccer",
+    8: "Tennis", 9: "American Football", 10: "Training", 11: "Walking",
+    12: "Cross Country Skiing", 13: "Alpine Skiing", 14: "Snowboarding",
+    15: "Rowing", 16: "Mountaineering", 17: "Hiking", 18: "Multisport",
+    19: "Paddling", 20: "Flying", 21: "EBiking", 22: "Motorcycling",
+    23: "Boating", 24: "Driving", 25: "Golf", 26: "Hang Gliding",
+    27: "Horseback Riding", 28: "Hunting", 29: "Fishing", 30: "Inline Skating",
+    31: "Rock Climbing", 32: "Sailing", 33: "Ice Skating", 34: "Sky Diving",
+    35: "Snowshoeing", 36: "Snowmobiling", 37: "Stand Up Paddleboarding",
+    38: "Surfing", 39: "Wakeboarding", 40: "Water Skiing", 41: "Kayaking",
+    42: "Rafting", 43: "Windsurfing", 44: "Kitesurfing",
+    53: "HIIT", 58: "Cardio Training", 62: "Strength Training",
+  };
+  return map[Number(n)] || "";
+}
+
+// 去掉 Date 对象字段，避免 JSON 序列化后体积膨胀（FIT 原始 session 里有大量重复 Date）
+function stripDateFields(obj) {
+  try {
+    const clone = {};
+    for (const k of Object.keys(obj || {})) {
+      const v = obj[k];
+      if (v instanceof Date) continue;
+      if (v && typeof v === "object" && !Array.isArray(v)) continue;
+      if (Array.isArray(v)) continue;
+      clone[k] = v;
+    }
+    return clone;
+  } catch (_) { return null; }
+}
+
 /* ---- 格式探测 + 统一入口 ---- */
-function detectAndParseFile(filename, content) {
+/*
+ * 参数兼容两种调用形式：
+ *   detectAndParseFile(filename, textContent)   // TCX/GPX/CSV
+ *   detectAndParseFile(filename, {text, buffer})// FIT（buffer 是 ArrayBuffer）
+ * 统一返回 { format, activities }
+ */
+function detectAndParseFile(filename, payload) {
   const lower = filename.toLowerCase();
+  const hasObj = payload && typeof payload === "object" && !Array.isArray(payload) && ("text" in payload || "buffer" in payload);
+  const text = hasObj ? payload.text : payload;
+  const buffer = hasObj ? payload.buffer : null;
+
+  // FIT：二进制格式，必须提供 ArrayBuffer
+  if (lower.endsWith(".fit")) {
+    if (!buffer || !(buffer instanceof ArrayBuffer)) {
+      throw new Error(`FIT 文件需要以二进制方式读取：${filename}`);
+    }
+    // 交给外层 async 调用，这里返回一个特殊标记以避免同步解析
+    // 注：由于 FIT 解析是异步回调，detectAndParseFile 本身被设计为同步入口时只负责探测；
+    // 真正的解析在 handleFiles 里通过 parseFIT(buffer) 直接调用。
+    return { format: "fit", activities: [] };
+  }
+
   if (lower.endsWith(".tcx")) {
-    return { format: "tcx", activities: parseTCX(content) };
+    return { format: "tcx", activities: parseTCX(text) };
   }
   if (lower.endsWith(".gpx")) {
-    return { format: "gpx", activities: parseGPX(content) };
+    return { format: "gpx", activities: parseGPX(text) };
   }
   if (lower.endsWith(".csv")) {
-    return { format: "csv", activities: parseCSV(content) };
+    return { format: "csv", activities: parseCSV(text) };
   }
-  // 兜底：按文件内容探测
-  const trimmed = content.trim();
-  if (trimmed.startsWith("<?xml") || trimmed.startsWith("<TrainingCenterDatabase")) {
-    return { format: "tcx", activities: parseTCX(content) };
+  // 兜底：按文件内容探测（只对文本格式）
+  if (typeof text === "string") {
+    const trimmed = text.trim();
+    if (trimmed.startsWith("<?xml") || trimmed.startsWith("<TrainingCenterDatabase")) {
+      return { format: "tcx", activities: parseTCX(text) };
+    }
+    if (trimmed.startsWith("<gpx")) {
+      return { format: "gpx", activities: parseGPX(text) };
+    }
   }
-  if (trimmed.startsWith("<gpx")) {
-    return { format: "gpx", activities: parseGPX(content) };
-  }
-  throw new Error(`不支持的文件格式：${filename}。支持 .tcx / .gpx / .csv`);
+  throw new Error(`不支持的文件格式：${filename}。支持 .fit / .tcx / .gpx / .csv`);
 }
 
 /* ---- 导入流程：解析 → 补齐训练负荷 → 去重 → 批量写入 ---- */
@@ -4137,10 +4356,12 @@ function sourceTypeLabel(type) {
   return {
     manual: "手动填写",
     coros: "高驰 COROS",
+    garmin: "佳明 Garmin",
     strava: "Strava",
     file_tcx: "TCX 导入",
     file_gpx: "GPX 导入",
     file_csv: "CSV 导入",
+    file_fit: "FIT 导入 / 佳明",
   }[type] || type || "未知";
 }
 
@@ -4194,22 +4415,24 @@ async function renderSyncPage(app, user) {
   appRoot.innerHTML = `
     <section class="page sync-page">
       <header class="page-head">
-        <h2>数据同步 / 高驰导入</h2>
-        <p class="page-sub">从高驰（COROS）、Strava 等运动平台把训练数据自动导入到训练日历和日志。</p>
+        <h2>数据同步 / 高驰 + 佳明导入</h2>
+        <p class="page-sub">从高驰（COROS）、佳明（Garmin）、Strava 等运动平台把训练数据自动导入到训练日历和日志。</p>
       </header>
 
       <!-- 提示条 -->
       <div class="sync-info-card">
         <div class="sync-info-icon">💡</div>
         <div class="sync-info-body">
-          <strong>高驰（COROS）用户的推荐流程</strong>
+          <strong>快速上手（高驰 + 佳明通用）</strong>
           <ol class="sync-steps">
-            <li>打开 <strong>高驰 APP</strong> → 进入活动详情页 → 右上角「…」→「导出」→ 选择 <strong>TCX</strong> 格式（推荐）。</li>
-            <li>或打开 <strong>高驰官网 mycoros.com</strong> → 活动详情 → 「导出 TCX / GPX」。</li>
-            <li>在下方 <strong>「批量上传文件」</strong> 区域把导出的 .tcx / .gpx / .csv 文件拖进来，或点击选择。</li>
+            <li><strong>佳明（Garmin）用户</strong>：打开佳明 Connect APP → 活动详情 → 右上角「…」→「导出原始文件 (FIT)」。或佳明官网 <code>connectcn.garmin.cn</code> → 活动详情 →「导出」。
+            </li>
+            <li><strong>高驰（COROS）用户</strong>：高驰 APP → 活动详情 → 右上角「…」→ 导出 → 选择 <strong>TCX</strong> 格式（推荐）。</li>
+            <li>在下方 <strong>「批量上传文件」</strong> 区域把导出的 .fit / .tcx / .gpx / .csv 文件拖进来，或点击选择。</li>
             <li>系统会自动解析、去重、换算训练负荷，并写入你的训练日志。同一活动不会被重复导入。</li>
           </ol>
-          <p class="muted"><strong>进阶：</strong>如果已经把高驰数据同步到 Strava，未来可以部署简单后端实现 Strava OAuth 自动拉取（本系统已预留连接表架构）。</p>
+          <p class="muted"><strong>格式选择指南：</strong>佳明推荐 <code>.fit</code>（原厂二进制，含步频/触地时间/垂直振幅等跑步动态）；高驰推荐 <code>.tcx</code>；通用互转选 <code>.gpx</code>；Excel 整理用 <code>.csv</code>。</p>
+          <p class="muted"><strong>进阶：</strong>如果已经把高驰/佳明数据同步到 Strava，未来可以部署简单后端实现 Strava OAuth 自动拉取（本系统已预留连接表架构）。</p>
         </div>
       </div>
 
@@ -4232,7 +4455,32 @@ async function renderSyncPage(app, user) {
               <li>高驰 APP：活动详情 → 右上角「…」→ 导出 → TCX 格式</li>
               <li>高驰官网：活动详情 → 「导出 TCX / GPX」按钮</li>
             </ul>
-            <p><strong>支持格式：</strong><code>.tcx</code>（数据最全，包含心率/圈数/配速）、<code>.gpx</code>、<code>.csv</code></p>
+            <p><strong>支持格式：</strong><code>.tcx</code>（数据最全，心率/圈数/配速）、<code>.gpx</code>、<code>.csv</code></p>
+          </div>
+          <div class="platform-card-foot">
+            <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
+          </div>
+        </article>
+
+        <article class="card platform-card">
+          <div class="platform-card-head">
+            <div class="platform-brand garmin-brand">
+              <div class="platform-logo">G</div>
+              <div>
+                <h3>佳明 Garmin</h3>
+                <p class="muted">推荐：导出 FIT 原始文件（含跑步动态）</p>
+              </div>
+            </div>
+            <span class="badge badge-endurance">文件导入</span>
+          </div>
+          <div class="platform-card-body">
+            <p><strong>导出位置：</strong></p>
+            <ul class="muted small">
+              <li>佳明 Connect APP：活动详情 → 右上角「…」→「导出原始文件 (FIT)」</li>
+              <li>佳明中国官网 connectcn.garmin.cn：活动详情 → 右上角菜单 → 导出</li>
+              <li>佳明国际官网 connect.garmin.com：活动详情 → Export → Original（.fit）或 TCX</li>
+            </ul>
+            <p><strong>支持格式：</strong><code>.fit</code>（佳明原厂格式，数据最完整）、<code>.tcx</code>、<code>.gpx</code>、<code>.csv</code></p>
           </div>
           <div class="platform-card-foot">
             <a class="primary-button" href="#file-drop-area">去上传文件 ↓</a>
@@ -4245,7 +4493,7 @@ async function renderSyncPage(app, user) {
               <div class="platform-logo">S</div>
               <div>
                 <h3>Strava</h3>
-                <p class="muted">高驰同步 → Strava → 自动拉取</p>
+                <p class="muted">高驰/佳明同步 → Strava → 自动拉取</p>
               </div>
             </div>
             <span class="badge badge-balanced">需要后端支持</span>
@@ -4253,11 +4501,11 @@ async function renderSyncPage(app, user) {
           <div class="platform-card-body">
             <p><strong>流程：</strong></p>
             <ul class="muted small">
-              <li>高驰 APP → 设置 → 第三方连接 → 绑定 Strava</li>
-              <li>每次运动后高驰会自动同步到 Strava</li>
+              <li>高驰 APP / 佳明 Connect → 设置 → 第三方连接 → 绑定 Strava</li>
+              <li>每次运动后会自动同步到 Strava</li>
               <li>需要部署 OAuth 回调后端（Node/Cloudflare Workers）才能自动拉取</li>
             </ul>
-            <p class="muted small"><strong>替代方案：</strong>Strava 活动详情 → 菜单 → 导出 TCX → 按高驰方式上传</p>
+            <p class="muted small"><strong>替代方案：</strong>Strava 活动详情 → 菜单 → 导出 TCX → 按文件方式上传</p>
           </div>
           <div class="platform-card-foot">
             <button class="ghost-button" id="stravaHelpBtn">查看 Strava 对接说明</button>
@@ -4297,13 +4545,13 @@ async function renderSyncPage(app, user) {
 
       <!-- 上传区域 -->
       <section class="section" id="file-drop-area">
-        <h3 class="section-title">批量上传文件（高驰导出 TCX/GPX/CSV）</h3>
+        <h3 class="section-title">批量上传文件（支持佳明 FIT / 高驰 TCX / GPX / CSV）</h3>
 
         <div class="upload-zone" id="uploadZone">
           <div class="upload-zone-icon">📤</div>
           <h4>拖拽文件到这里，或点击选择文件</h4>
-          <p class="muted">支持 <strong>.tcx</strong>、<strong>.gpx</strong>、<strong>.csv</strong>，可多选，系统会按日期自动合并导入并去重。</p>
-          <input type="file" id="fileInput" multiple accept=".tcx,.gpx,.csv,application/xml,text/csv" hidden />
+          <p class="muted">支持 <strong>.fit</strong>（佳明原厂）、<strong>.tcx</strong>、<strong>.gpx</strong>、<strong>.csv</strong>，可多选，系统会自动合并导入并去重。</p>
+          <input type="file" id="fileInput" multiple accept=".fit,.tcx,.gpx,.csv,application/xml,text/csv,application/octet-stream" hidden />
           <button class="primary-button" id="pickFilesBtn">选择文件</button>
         </div>
 
@@ -4395,8 +4643,21 @@ async function renderSyncPage(app, user) {
     const newItems = [];
     for (const f of files) {
       try {
-        const content = await f.text();
-        const { format, activities } = detectAndParseFile(f.name, content);
+        const lower = f.name.toLowerCase();
+        let format;
+        let activities;
+        if (lower.endsWith(".fit")) {
+          // FIT 是二进制，必须用 ArrayBuffer 读取
+          const buffer = await f.arrayBuffer();
+          format = "fit";
+          activities = await parseFIT(buffer);
+        } else {
+          // 文本格式（TCX / GPX / CSV）
+          const content = await f.text();
+          const parsed = detectAndParseFile(f.name, content);
+          format = parsed.format;
+          activities = parsed.activities;
+        }
         for (const act of activities) {
           const finalized = finalizeActivityImport(act, age);
           // 去重检查：external_id

@@ -1881,6 +1881,7 @@ textarea {
   flex-shrink: 0;
 }
 .coros-brand .platform-logo { background: linear-gradient(135deg, #111827, #374151); }
+.garmin-brand .platform-logo { background: linear-gradient(135deg, #007CC3, #1AA7EC); color: #fff; }
 .strava-brand .platform-logo { background: linear-gradient(135deg, #fc4c02, #ff874d); }
 
 .platform-brand h3 {
