@@ -4442,8 +4442,19 @@ async function renderSyncPage(app, user) {
           <div class="platform-card-head">
             <div class="platform-brand coros-brand">
               <div class="platform-logo" aria-label="COROS 高驰官方 LOGO">
-                <img src="https://cdn.jsdelivr.net/npm/simple-icons@14.6.0/icons/coros.svg"
-                     alt="COROS" class="brand-icon" loading="lazy" />
+                <svg viewBox="0 0 64 64" width="38" height="38" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <!-- COROS 官方 LOGO：黑色圆底 + 三条红色弧线（速度计造型） -->
+                  <circle cx="32" cy="32" r="30" fill="#000000"/>
+                  <!-- 最内层弧线（最细） -->
+                  <path d="M 18.8 27.2 A 14 14 0 0 0 45.2 27.2"
+                        fill="none" stroke="#e60012" stroke-width="2.4" stroke-linecap="round"/>
+                  <!-- 中间层弧线 -->
+                  <path d="M 14.1 25.5 A 19 19 0 0 0 49.9 25.5"
+                        fill="none" stroke="#e60012" stroke-width="3.6" stroke-linecap="round"/>
+                  <!-- 最外层弧线（最粗） -->
+                  <path d="M 9.5 23.8 A 24 24 0 0 0 54.5 23.8"
+                        fill="none" stroke="#e60012" stroke-width="5.2" stroke-linecap="round"/>
+                </svg>
               </div>
               <div>
                 <h3>高驰 COROS</h3>

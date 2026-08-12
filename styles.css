@@ -1902,7 +1902,7 @@ textarea {
   /* black → pure white + 微阴影，保证在所有品牌色背景上清晰可见 */
   filter: brightness(0) invert(1) drop-shadow(0 1px 1px rgba(0,0,0,0.2));
 }
-.coros-brand .platform-logo { background: linear-gradient(135deg, #111827, #374151); }
+.coros-brand .platform-logo { background: #000000; border-radius: 50%; }
 .garmin-brand .platform-logo { background: linear-gradient(135deg, #007CC3, #1AA7EC); color: #fff; }
 .strava-brand .platform-logo { background: linear-gradient(135deg, #fc4c02, #ff874d); }
 
