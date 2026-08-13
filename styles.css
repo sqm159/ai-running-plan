@@ -1010,26 +1010,31 @@ textarea {
 
 .weight-bar-item {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   margin-bottom: 8px;
   font-size: 13px;
 }
 
 .weight-bar-item .wb-label {
-  flex: 0 0 auto;
-  width: 90px;
+  flex: 0 0 100px;
+  width: 100px;
+  max-width: 100px;
   font-weight: 700;
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: visible;
+  z-index: 1;
 }
 
 .weight-bar-item .wb-bar {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   height: 10px;
   border-radius: 999px;
   background: var(--line);
   overflow: hidden;
+  min-width: 40px;
 }
 
 .weight-bar-item .wb-bar span { display: block; height: 100%; border-radius: inherit; transition: width 0.4s ease; }
@@ -1037,7 +1042,8 @@ textarea {
 .wb-adjusted span { background: var(--primary); box-shadow: 0 0 6px rgba(217,238,99,0.35); }
 
 .weight-bar-item .wb-value {
-  flex: 0 0 36px;
+  flex: 0 0 34px;
+  width: 34px;
   text-align: center;
   font-weight: 800;
   font-size: 13px;
