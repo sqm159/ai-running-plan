@@ -9,11 +9,11 @@
   --muted: #666666;
   --line: rgba(255, 255, 255, 0.06);
   --line-strong: rgba(255, 255, 255, 0.12);
-  --primary: #B8E62C;
-  --primary-hover: #A3D00A;
-  --primary-glow: rgba(184, 230, 44, 0.20);
-  --indigo: #9CCC0A;
-  --indigo-hover: #8AB809;
+  --primary: #C8E62C;
+  --primary-hover: #B8D61C;
+  --primary-glow: rgba(200, 230, 44, 0.22);
+  --indigo: #B8CC0A;
+  --indigo-hover: #A8B809;
   --green: #22c55e;
   --green-dark: #16a34a;
   --emerald: #34d399;
@@ -38,8 +38,8 @@ html {
 body {
   margin: 0;
   background:
-    radial-gradient(ellipse at 50% 100%, rgba(184, 230, 44, 0.08) 0%, transparent 55%),
-    radial-gradient(ellipse at 20% 0%, rgba(184, 230, 44, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 100%, rgba(200, 230, 44, 0.08) 0%, transparent 55%),
+    radial-gradient(ellipse at 20% 0%, rgba(200, 230, 44, 0.04) 0%, transparent 50%),
     linear-gradient(180deg, #080808 0%, #0c0c0c 50%, #080808 100%);
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -1312,8 +1312,8 @@ textarea {
   margin: 14px 0 22px;
   padding: 14px 18px;
   border-radius: 18px;
-  background: rgba(184, 230, 44, 0.08);
-  border: 1px solid rgba(184, 230, 44, 0.18);
+  background: rgba(200, 230, 44, 0.08);
+  border: 1px solid rgba(200, 230, 44, 0.18);
 }
 
 .plan-status {
@@ -1565,7 +1565,7 @@ textarea {
 .cal-day-past { background: var(--bg-elevated); opacity: 0.85; }
 .cal-day-today {
   border-color: var(--primary);
-  background: rgba(184, 230, 44, 0.14);
+  background: rgba(200, 230, 44, 0.14);
 }
 .cal-day-done {
   background: rgba(5, 150, 105, 0.14);
@@ -1684,11 +1684,11 @@ textarea {
   margin-top: 4px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(184, 230, 44, 0.10);
+  background: rgba(200, 230, 44, 0.10);
   color: var(--primary);
   font-size: 14px;
   font-weight: 700;
-  border: 1px solid rgba(184, 230, 44, 0.20);
+  border: 1px solid rgba(200, 230, 44, 0.20);
 }
 
 .log-preview strong { font-size: 16px; }
@@ -2167,7 +2167,7 @@ textarea {
 
 .upload-zone.active {
   border-color: var(--primary);
-  background: rgba(184, 230, 44, 0.08);
+  background: rgba(200, 230, 44, 0.08);
   transform: scale(1.005);
 }
 
@@ -2225,7 +2225,7 @@ textarea {
   gap: 8px;
 }
 
-.pill-info { background: rgba(184, 230, 44, 0.12); color: var(--primary); }
+.pill-info { background: rgba(200, 230, 44, 0.12); color: var(--primary); }
 .pill-info strong { color: var(--primary); }
 .pill-ok { background: rgba(5, 150, 105, 0.12); color: var(--green); }
 .pill-ok strong { color: var(--green); }
