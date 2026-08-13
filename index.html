@@ -18,15 +18,15 @@
   <meta name="apple-mobile-web-app-title" content="NextLap" />
 
   <!-- PWA: iOS 图标 -->
-  <link rel="apple-touch-icon" href="./icons/logo.png" />
+  <link rel="apple-touch-icon" href="./logo.png" />
 
-  <!-- PWA: 启动画面 iOS (iPad/iPhone 自动匹配图标底色) -->
+  <!-- PWA: 启动画面 iOS -->
   <meta name="apple-touch-startup-image" content="#0C0D0D" />
 
   <!-- Favicon -->
-  <link rel="icon" type="image/svg+xml" href="./icons/favicon.svg" />
-  <link rel="icon" type="image/png" sizes="512x512" href="./icons/logo.png" />
-  <link rel="apple-touch-icon" href="./icons/logo.png" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="icon" type="image/png" sizes="512x512" href="./logo.png" />
+  <link rel="apple-touch-icon" href="./logo.png" />
   <meta name="application-name" content="NextLap" />
   <meta name="mobile-web-app-capable" content="yes" />
 
@@ -35,7 +35,7 @@
   <meta property="og:title" content="NextLap · AI 中长跑训练系统" />
   <meta property="og:description" content="Own your next lap." />
   <meta property="og:type" content="website" />
-  <meta property="og:image" content="./icons/logo.png" />
+  <meta property="og:image" content="./logo.png" />
 
   <link rel="stylesheet" href="./styles.css?v=26" />
 </head>
@@ -56,27 +56,21 @@
         <a href="#/logs" data-route="/logs">训练日志</a>
         <a href="#/sync" data-route="/sync">数据同步</a>
       </div>
-      <div class="nav-auth" id="navAuth"><!-- 由 app.js 根据登录状态渲染 --></div>
+      <div class="nav-auth" id="navAuth"></div>
     </nav>
   </header>
 
-  <!-- 路由出口：所有页面均由 app.js 渲染至此 -->
   <main id="app" class="app-root"></main>
 
   <footer class="site-footer">
     <p>NextLap · Own your next lap · AI 中长跑训练系统 V2.0 · 基于 Supabase 构建用户数据层</p>
   </footer>
 
-  <!-- Supabase JS SDK（CDN，暴露 window.supabase.createClient） -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Fit/FIT 二进制解析器（Garmin 等运动手表的标准活动文件格式） -->
   <script src="https://cdn.jsdelivr.net/npm/fit-file-parser@1.6.0/dist/fit-file-parser.min.js"></script>
-  <!-- Supabase 配置（URL + anon key，需自行填写） -->
   <script src="./supabase-config.js"></script>
-  <!-- 应用主逻辑 -->
   <script src="./app.js?v=26"></script>
 
-  <!-- PWA: Service Worker 注册 -->
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
