@@ -1526,12 +1526,12 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = level === 5 ? "rgba(100,112,103,0.3)" : "rgba(100,112,103,0.12)";
+    ctx.strokeStyle = level === 5 ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)";
     ctx.lineWidth = 1;
     ctx.stroke();
   }
 
-  ctx.fillStyle = "rgba(100,112,103,0.5)";
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
   ctx.font = "10px sans-serif";
   ctx.textAlign = "center";
   for (let level = 1; level <= 5; level++) {
@@ -1543,7 +1543,7 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     const angle = -Math.PI / 2 + i * angleStep;
     const x = cx + Math.cos(angle) * (radius + 28);
     const y = cy + Math.sin(angle) * (radius + 28);
-    ctx.fillStyle = "#3a4a3f";
+    ctx.fillStyle = "#9ba1ac";
     ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -1569,7 +1569,7 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     ctx.stroke();
   };
 
-  drawPolygon(targetScores, "rgba(214,122,44,0.1)", "rgba(214,122,44,0.8)", 2);
+  drawPolygon(targetScores, "rgba(217,119,6,0.10)", "rgba(217,119,6,0.75)", 2);
 
   for (let i = 0; i < n; i++) {
     const r = valToRadius(targetScores[dims[i]]);
@@ -1578,11 +1578,11 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     const y = cy + Math.sin(angle) * r;
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
-    ctx.fillStyle = "#d67a2c";
+    ctx.fillStyle = "#d97706";
     ctx.fill();
   }
 
-  drawPolygon(currentScores, "rgba(31,122,76,0.2)", "rgba(31,122,76,1)", 2.5);
+  drawPolygon(currentScores, "rgba(91,91,247,0.18)", "rgba(91,91,247,0.95)", 2.5);
 
   for (let i = 0; i < n; i++) {
     const r = valToRadius(currentScores[dims[i]]);
@@ -1591,7 +1591,7 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     const y = cy + Math.sin(angle) * r;
     ctx.beginPath();
     ctx.arc(x, y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = "#1f7a4c";
+    ctx.fillStyle = "#5b5bf7";
     ctx.fill();
     ctx.strokeStyle = "white";
     ctx.lineWidth = 2;
