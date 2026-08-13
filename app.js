@@ -1290,13 +1290,13 @@ function buildPaceTable(input, analysis) {
     {
       label: "冲刺/速度训练",
       desc: "30-80m 加速跑、短距离高速跑",
-      pace: sprintPer100 ? `${formatPaceTime(sprintPer100)}/100m` : "—",
+      pace: sprintPer100 ? `${formatPaceTime(sprintPer100 * 10)}/km` : "—",
       detail: t400 ? `参考 400m 成绩 ${formatPaceTime(t400)}` : "需 400m 成绩",
     },
     {
       label: `${event}m 比赛配速`,
       desc: "专项刺激、比赛模拟",
-      pace: racePer100 ? `${formatPaceTime(racePer100)}/100m` : "—",
+      pace: racePer100 ? `${formatPaceTime(racePer100 * 10)}/km` : "—",
       detail: goalTime ? `目标 ${formatPaceTime(goalTime)}` : "—",
     },
   ];
@@ -1305,7 +1305,7 @@ function buildPaceTable(input, analysis) {
     rows.push({
       label: "800m 配速",
       desc: "800m 节奏间歇、速度耐力",
-      pace: `${formatPaceTime(per100(t800, 800))}/100m`,
+      pace: `${formatPaceTime(perKm(t800, 800))}/km`,
       detail: `400m 用时 ${formatPaceTime(per400(t800, 800))}`,
     });
   }
