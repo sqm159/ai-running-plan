@@ -2,16 +2,49 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI 中长跑训练系统</title>
-  <link rel="stylesheet" href="./styles.css?v=25" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>NextLap · AI 中长跑训练系统</title>
+
+  <!-- PWA: Manifest -->
+  <link rel="manifest" href="./manifest.json" />
+
+  <!-- PWA: 主题色 (Android 状态栏) -->
+  <meta name="theme-color" content="#0C0D0D" />
+  <meta name="color-scheme" content="dark" />
+
+  <!-- PWA: iOS 全屏模式 -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="NextLap" />
+
+  <!-- PWA: iOS 图标 -->
+  <link rel="apple-touch-icon" href="./icons/icon-192(1).jpg" />
+
+  <!-- PWA: 启动画面 iOS (iPad/iPhone 自动匹配图标底色) -->
+  <meta name="apple-touch-startup-image" content="#0C0D0D" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="./icons/favicon.svg" />
+  <link rel="icon" type="image/jpeg" sizes="192x192" href="./icons/icon-192(1).jpg" />
+  <link rel="apple-touch-icon" href="./icons/icon-192(1).jpg" />
+  <meta name="application-name" content="NextLap" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- Slogan / OG -->
+  <meta name="description" content="Own your next lap. AI 驱动的中长跑训练计划生成、能力分析、训练负荷管理系统。" />
+  <meta property="og:title" content="NextLap · AI 中长跑训练系统" />
+  <meta property="og:description" content="Own your next lap." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="./icons/icon-512(1).jpg" />
+
+  <link rel="stylesheet" href="./styles.css?v=26" />
 </head>
 <body>
   <header class="topbar">
     <nav class="nav">
       <a class="brand" href="#/">
         <span class="brand-mark">RUN</span>
-        <span>AI 中长跑训练系统</span>
+        <span>NextLap · AI 中长跑训练系统</span>
       </a>
       <div class="nav-links" id="navLinks">
         <a href="#/" data-route="/">首页</a>
@@ -31,7 +64,7 @@
   <main id="app" class="app-root"></main>
 
   <footer class="site-footer">
-    <p>AI 中长跑训练系统 V2.0 · 个人账户 + 数据保存 + 多页面结构 + 训练日历 + 训练负荷 · 基于 Supabase 构建用户数据层</p>
+    <p>NextLap · Own your next lap · AI 中长跑训练系统 V2.0 · 基于 Supabase 构建用户数据层</p>
   </footer>
 
   <!-- Supabase JS SDK（CDN，暴露 window.supabase.createClient） -->
@@ -41,6 +74,23 @@
   <!-- Supabase 配置（URL + anon key，需自行填写） -->
   <script src="./supabase-config.js"></script>
   <!-- 应用主逻辑 -->
-  <script src="./app.js?v=25"></script>
+  <script src="./app.js?v=26"></script>
+
+  <!-- PWA: Service Worker 注册 -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("./service-worker.js", { scope: "./" })
+          .then((reg) => {
+            console.log("[PWA] Service Worker 注册成功:", reg.scope);
+            if (reg.waiting) {
+              reg.waiting.postMessage({ type: "SKIP_WAITING" });
+            }
+          })
+          .catch((err) => console.warn("[PWA] Service Worker 注册失败:", err));
+      });
+    }
+  </script>
 </body>
 </html>

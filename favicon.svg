@@ -1,0 +1,25 @@
+<!-- NextLap favicon.svg - 精确还原用户参考图 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 背景 -->
+  <rect width="512" height="512" rx="92" ry="92" fill="#0C0D0D"/>
+
+  <!-- ====== 跑道 ====== -->
+  <!-- 最外层跑道 (粗，荧光黄绿) -->
+  <ellipse cx="256" cy="380" rx="190" ry="55" fill="none" stroke="#D9EE63" stroke-width="26" stroke-linecap="round"/>
+  <!-- 中层跑道 (白色) -->
+  <ellipse cx="256" cy="376" rx="152" ry="40" fill="none" stroke="#F3F3F0" stroke-width="12" stroke-linecap="round"/>
+  <!-- 内层跑道 (细弧线) -->
+  <ellipse cx="256" cy="376" rx="115" ry="26" fill="none" stroke="#D9EE63" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- ====== V 字 ====== -->
+  <path d="M168 156 L226 156 L256 220 L286 156 L344 156 L256 320 Z"
+        fill="#D9EE63"/>
+
+  <!-- V 字内部细节 -->
+  <path d="M196 172 L224 172 L256 238 L288 172 L316 172 L256 296 Z"
+        fill="#0C0D0D"/>
+
+  <!-- V 字描边 -->
+  <path d="M168 156 L256 320 L344 156"
+        fill="none" stroke="#D9EE63" stroke-width="8" stroke-linejoin="miter" stroke-linecap="butt"/>
+</svg>
