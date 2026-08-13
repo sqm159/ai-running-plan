@@ -586,7 +586,7 @@ function scoreFromTime(reference, actual, k = 2) {
 
 function analyzeAthlete(input) {
   const t = input.times;
-  const estimated = estimateMissingTimes(t, input.event, input.goalTime);
+  const estimated = estimateMissingTimes(t, input.event, input.goalTime, input.age);
 
   const speed = scoreFromTime(REFERENCE.speed400, estimated[400], 2.1);
   const speedEndurance = scoreSpeedEndurance(estimated[400], estimated[600]);
@@ -675,12 +675,12 @@ function getQualitativeLabel(gap) {
 function detectAnomalies(times) {
   const anomalies = [];
   const checks = [
-    { a: 400, b: 800, min: 1.9, max: 2.5 },
-    { a: 400, b: 1500, min: 3.8, max: 5.2 },
-    { a: 800, b: 1500, min: 1.8, max: 2.4 },
-    { a: 1500, b: 3000, min: 1.85, max: 2.3 },
-    { a: 3000, b: 5000, min: 1.55, max: 1.85 },
-    { a: 5000, b: 10000, min: 1.9, max: 2.2 },
+    { a: 400, b: 800, min: 1.9, max: 2.55 },
+    { a: 400, b: 1500, min: 3.8, max: 5.4 },
+    { a: 800, b: 1500, min: 1.8, max: 2.5 },
+    { a: 1500, b: 3000, min: 1.85, max: 2.45 },
+    { a: 3000, b: 5000, min: 1.55, max: 2.0 },
+    { a: 5000, b: 10000, min: 1.9, max: 2.4 },
   ];
   checks.forEach(({ a, b, min, max }) => {
     if (times[a] && times[b]) {
@@ -698,36 +698,27 @@ function calculateAgeCorrection(age) {
   return entry ? entry.coef : 0.75;
 }
 
-function deriveGoalTimes(event, goalTime) {
-  const factors = {
-    400: { 800: 0.46, 1500: 0.225, 3000: 0.105, 5000: 0.06, 10000: 0.028 },
-    600: { 800: 0.70, 1500: 0.34, 3000: 0.16, 5000: 0.092, 10000: 0.043 },
-    800: { 400: 2.17, 1500: 0.49, 3000: 0.23, 5000: 0.13, 10000: 0.061 },
-    1500: { 400: 4.45, 600: 2.95, 800: 2.04, 3000: 0.47, 5000: 0.27, 10000: 0.126 },
-    3000: { 400: 9.5, 600: 6.25, 800: 4.35, 1500: 2.13, 5000: 0.57, 10000: 0.27 },
-    5000: { 400: 16.5, 600: 10.9, 800: 7.7, 1500: 3.7, 3000: 1.75, 10000: 0.48 },
-    10000: { 400: 35, 600: 23, 800: 16.3, 1500: 7.9, 3000: 3.7, 5000: 2.08 },
-  };
+function deriveGoalTimes(event, goalTime, age) {
+  // 先以 event: goalTime 作为已知成绩，判断跑者水平（动态指数）
+  const timesSeed = {};
+  timesSeed[event] = goalTime;
+  const riegel = computeRiegelExponent(timesSeed, age);
+  const factors = buildDynamicFactors(riegel);
 
   const goalTimes = {};
   goalTimes[event] = goalTime;
+  const order = [400, 600, 800, 1500, 3000, 5000, 10000];
 
-  for (const target of [400, 600, 800, 1500, 3000, 5000, 10000]) {
-    if (String(target) === String(event)) continue;
-    const factor = factors[target]?.[event];
-    if (factor) {
-      goalTimes[target] = goalTime * factor;
-    }
-  }
-
-  for (const target of [400, 600, 800, 1500, 3000, 5000, 10000]) {
-    if (goalTimes[target]) continue;
-    const estimates = [];
-    for (const [source, srcTime] of Object.entries(goalTimes)) {
-      const f = factors[target]?.[source];
-      if (srcTime && f) estimates.push(srcTime * f);
-    }
-    if (estimates.length) goalTimes[target] = average(estimates);
+  for (let round = 0; round < 3; round++) {
+    order.forEach((target) => {
+      if (goalTimes[target]) return;
+      const ests = [];
+      Object.entries(goalTimes).forEach(([s, sT]) => {
+        const src = Number(s);
+        if (src > 0 && sT > 0 && factors[target]?.[src]) ests.push(sT * factors[target][src]);
+      });
+      if (ests.length) goalTimes[target] = average(ests);
+    });
   }
 
   return goalTimes;
@@ -875,47 +866,153 @@ function adjustTrainingWeights(event, scores, goalDemands, weaknessAnalysis) {
   return { default: defaults, adjusted, changed: JSON.stringify(defaults) !== JSON.stringify(adjusted) };
 }
 
-function estimateMissingTimes(times, event, goalTime) {
-  const known = { ...times };
-  if (!known[event]) known[event] = goalTime * 1.08;
+/* ============================================================
+   动态配速换算：根据跑者水平自适应 Riegel 疲劳指数
+   - 水平越高（配速越快）→ 指数越低（耐力衰减小，长距离推算更激进）
+   - 青少年/初学者 → 指数更高（衰减大，长距离推算更保守）
+   ============================================================ */
 
+/**
+ * 计算跑者对应的 Riegel 疲劳指数 (范围 1.05 ~ 1.24)
+ * 先用基准指数 1.15 把所有已知成绩换算为「5km等效时间」，取平均得5km配速，
+ * 再按配速分档 + 年龄加成得出最终指数。
+ */
+function computeRiegelExponent(times, age) {
+  const BASE_EXP = 1.15;
+  const valid = Object.entries(times || {})
+    .filter(([, t]) => Number(t) > 0);
+  if (!valid.length) return 1.19;
+
+  // Step 1: 把每个已知成绩换算为 5km 等效
+  const equiv5k = [];
+  valid.forEach(([dStr, t]) => {
+    const d = Number(dStr);
+    const sec = Number(t);
+    if (d < 800) return; // 短距离无氧主导，不参与水平评估
+    const ratio = 5000 / d;
+    equiv5k.push(sec * Math.pow(ratio, BASE_EXP));
+  });
+  // 中长距离没数据 → 用短距离(400/600/800)粗略换算（额外衰减）
+  if (equiv5k.length === 0) {
+    valid.forEach(([dStr, t]) => {
+      const d = Number(dStr);
+      const sec = Number(t);
+      if (d > 800) return;
+      const ratio = 5000 / d;
+      equiv5k.push(sec * Math.pow(ratio, 1.19));
+    });
+  }
+
+  const avg5k = equiv5k.length ? average(equiv5k) : 1500;
+  const pace = avg5k / 5; // 秒/km
+
+  // Step 2: 按 5km 配速分档（配速越快 = 水平越高 = 指数越低）
+  let exp;
+  if (pace < 180) exp = 1.06;           // <3:00/km  S 精英
+  else if (pace < 198) exp = 1.10;      // 3:00-3:18  A 高水平
+  else if (pace < 222) exp = 1.15;      // 3:18-3:42  B 中等
+  else if (pace < 252) exp = 1.18;      // 3:42-4:12  C 普通
+  else exp = 1.21;                      // >4:12     D 入门
+
+  // Step 3: 年龄加成（青少年耐力未完全发育 → 更保守）
+  const a = Number(age) || 22;
+  if (a < 16) exp += 0.025;
+  else if (a < 19) exp += 0.015;
+  else if (a >= 50 && a < 60) exp += 0.008;
+  else if (a >= 60) exp += 0.015;
+
+  return clamp(exp, 1.05, 1.24);
+}
+
+/**
+ * 根据 Riegel 指数动态生成双向一致的换算表：
+ * - 短距离(400/600/800)之间保留静态无氧系数
+ * - 中长距离(1500/3000/5000/10000)互换算严格按 (target/source)^exp
+ * - 短距离→中长距离：通过 1500m 为锚点 + 幂律
+ * - 保证 factors[A][B] * factors[B][A] === 1（双向一致）
+ */
+function buildDynamicFactors(riegelExp) {
+  const MID_LONG = [1500, 3000, 5000, 10000];
+  const SHORT = [400, 600, 800];
+
+  // 短距离静态（无氧主导，不随水平变化，保持已校准的值）
   const factors = {
     400: { 800: 0.46, 1500: 0.225, 3000: 0.105, 5000: 0.06, 10000: 0.028 },
     600: { 800: 0.70, 1500: 0.34, 3000: 0.16, 5000: 0.092, 10000: 0.043 },
     800: { 400: 2.17, 1500: 0.49, 3000: 0.23, 5000: 0.13, 10000: 0.061 },
-    1500: { 400: 4.45, 600: 2.95, 800: 2.04, 3000: 0.47, 5000: 0.27, 10000: 0.126 },
-    3000: { 400: 9.5, 600: 6.25, 800: 4.35, 1500: 2.13, 5000: 0.57, 10000: 0.27 },
-    5000: { 400: 16.5, 600: 10.9, 800: 7.7, 1500: 3.7, 3000: 1.75, 10000: 0.48 },
-    10000: { 400: 35, 600: 23, 800: 16.3, 1500: 7.9, 3000: 3.7, 5000: 2.08 },
   };
 
-  for (const target of [400, 600, 800, 1500, 3000, 5000, 10000]) {
-    if (known[target]) continue;
-    const estimates = [];
-    for (const [source, sourceTime] of Object.entries(known)) {
-      if (sourceTime && factors[target]?.[source]) estimates.push(sourceTime * factors[target][source]);
-    }
-    known[target] = estimates.length ? average(estimates) : null;
+  // 1) 中长距离互相换算：严格幂律，保证双向一致
+  MID_LONG.forEach((a) => {
+    if (!factors[a]) factors[a] = {};
+    MID_LONG.forEach((b) => {
+      if (a === b) return;
+      factors[a][b] = +Math.pow(b / a, riegelExp).toFixed(4);
+    });
+  });
+
+  // 2) 中长距离 → 短距离：用短距离表的倒数（保证一致）
+  MID_LONG.forEach((ml) => {
+    if (!factors[ml]) factors[ml] = {};
+    SHORT.forEach((sh) => {
+      const fwd = factors[sh]?.[ml];
+      if (fwd && fwd > 0) factors[ml][sh] = +(1 / fwd).toFixed(3);
+    });
+  });
+
+  // 3) 短距离→中长距离：静态已有则保留，否则用 short→1500 锚点 * 幂律推算
+  SHORT.forEach((sh) => {
+    if (!factors[sh]) factors[sh] = {};
+    MID_LONG.forEach((ml) => {
+      if (factors[sh][ml]) return;
+      const shTo1500 = factors[sh]?.[1500] ?? (1 / (factors[1500]?.[sh] || 1));
+      factors[sh][ml] = +(shTo1500 * Math.pow(ml / 1500, riegelExp)).toFixed(3);
+      // 反向补齐
+      if (!factors[ml]) factors[ml] = {};
+      factors[ml][sh] = +(1 / factors[sh][ml]).toFixed(3);
+    });
+  });
+
+  return factors;
+}
+
+function estimateMissingTimes(times, event, goalTime, age) {
+  const known = { ...times };
+  if (!known[event]) known[event] = goalTime * 1.08;
+
+  // 根据实际水平动态生成换算表（3km=10:00 青少年会用更保守的高指数）
+  const riegel = computeRiegelExponent(known, age);
+  const factors = buildDynamicFactors(riegel);
+  known._riegelExponent = riegel; // 调试/展示用
+
+  const order = [400, 600, 800, 1500, 3000, 5000, 10000];
+
+  for (let round = 0; round < 3; round++) {
+    order.forEach((target) => {
+      if (known[target]) return;
+      const ests = [];
+      Object.entries(known).forEach(([s, sT]) => {
+        const src = Number(s);
+        if (src > 0 && sT > 0 && factors[target]?.[src]) {
+          ests.push(sT * factors[target][src]);
+        }
+      });
+      if (ests.length) known[target] = average(ests);
+    });
   }
 
-  // 单调性修复：确保 400 < 600 < 800 < 1500 < 3000 < 5000 < 10000 的每公里配速严格递减（即距离越长，每km用时越多）
-  // 顺序遍历：每公里用时 = perKm(总时间, 距离)，必须随距离递增
-  const order = [400, 600, 800, 1500, 3000, 5000, 10000];
+  // 单调性修复：距离越长 每km配速越慢
   let lastPerKm = 0;
   for (let i = 0; i < order.length; i++) {
     const d = order[i];
     const t = known[d];
     if (!t) continue;
-    const currentPerKm = t / (d / 1000);
-    // 每公里配速必须比上一个（更短距离）更慢，即 currentPerKm 必须 > lastPerKm
-    // 相邻项目最小减速比（Riegel 幂律约 1.04~1.06，取 1.025 下限）
-    const minAllowedPerKm = lastPerKm * 1.025;
-    if (currentPerKm < minAllowedPerKm && lastPerKm > 0) {
-      // 修复：按最小减速比重新计算总时间
-      const fixedPerKm = minAllowedPerKm;
-      known[d] = fixedPerKm * (d / 1000);
+    const cur = t / (d / 1000);
+    const minAllowed = lastPerKm * 1.025;
+    if (cur < minAllowed && lastPerKm > 0) {
+      known[d] = minAllowed * (d / 1000);
     }
-    lastPerKm = Math.max(lastPerKm, t / (d / 1000));
+    lastPerKm = Math.max(lastPerKm, (known[d] || 0) / (d / 1000));
   }
 
   return known;
