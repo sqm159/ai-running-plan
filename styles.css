@@ -1,30 +1,30 @@
 :root {
   color-scheme: dark;
-  --bg: #0b0d12;
-  --bg-elevated: #131620;
-  --bg-card: #181c26;
-  --bg-card-hover: #222733;
-  --ink: #e4e6eb;
-  --ink-secondary: #9ba1ac;
-  --muted: #6b7280;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.14);
-  --primary: #5b5bf7;
-  --primary-hover: #4f46e5;
-  --primary-glow: rgba(91, 91, 247, 0.22);
-  --indigo: #6366f1;
-  --indigo-hover: #4f46e5;
-  --green: #059669;
-  --green-dark: #047857;
-  --emerald: #10b981;
-  --orange: #d97706;
-  --amber: #b45309;
-  --red: #dc2626;
-  --red-dark: #b91c1c;
-  --lime: #65a30d;
-  --cyan: #0891b2;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.55);
+  --bg: #080808;
+  --bg-elevated: #111111;
+  --bg-card: #141414;
+  --bg-card-hover: #1c1c1c;
+  --ink: #e8e8e8;
+  --ink-secondary: #9a9a9a;
+  --muted: #666666;
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.12);
+  --primary: #B8E62C;
+  --primary-hover: #A3D00A;
+  --primary-glow: rgba(184, 230, 44, 0.20);
+  --indigo: #9CCC0A;
+  --indigo-hover: #8AB809;
+  --green: #22c55e;
+  --green-dark: #16a34a;
+  --emerald: #34d399;
+  --orange: #f59e0b;
+  --amber: #d97706;
+  --red: #ef4444;
+  --red-dark: #dc2626;
+  --lime: #84cc16;
+  --cyan: #06b6d4;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -38,13 +38,35 @@ html {
 body {
   margin: 0;
   background:
-    radial-gradient(ellipse at 15% 0%, rgba(91, 91, 247, 0.10) 0%, transparent 45%),
-    radial-gradient(ellipse at 85% 15%, rgba(99, 102, 241, 0.07) 0%, transparent 40%),
-    radial-gradient(ellipse at 50% 100%, rgba(91, 91, 247, 0.05) 0%, transparent 50%),
-    linear-gradient(180deg, #0b0d12 0%, #0e1118 50%, #0b0d12 100%);
+    radial-gradient(ellipse at 50% 100%, rgba(184, 230, 44, 0.08) 0%, transparent 55%),
+    radial-gradient(ellipse at 20% 0%, rgba(184, 230, 44, 0.04) 0%, transparent 50%),
+    linear-gradient(180deg, #080808 0%, #0c0c0c 50%, #080808 100%);
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   min-height: 100vh;
+  position: relative;
+}
+
+/* 山脉半透明背景蒙版 */
+body::after {
+  content: "";
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 75vh;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    /* 远景山脉 - 最淡 */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 600' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%230f0f0f' fill-opacity='0.6' d='M0,600 L0,380 L120,300 L200,360 L320,220 L420,290 L520,180 L620,260 L720,200 L820,320 L920,240 L1040,350 L1160,270 L1280,340 L1380,250 L1440,320 L1440,600 Z'/%3E%3C/svg%3E"),
+    /* 中景山脉 - 中等 */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 500' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%230a0a0a' fill-opacity='0.75' d='M0,500 L0,340 L80,280 L180,330 L280,200 L380,280 L480,180 L580,250 L680,160 L780,230 L880,190 L980,280 L1080,200 L1200,300 L1300,240 L1440,310 L1440,500 Z'/%3E%3C/svg%3E"),
+    /* 近景山脉 - 最深 */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 400' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%23050505' fill-opacity='0.9' d='M0,400 L0,280 L100,200 L200,260 L320,150 L440,230 L560,130 L680,210 L800,160 L920,240 L1040,170 L1160,250 L1280,180 L1400,260 L1440,230 L1440,400 Z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: 100% auto, 100% auto, 100% auto;
 }
 
 a {
@@ -86,7 +108,7 @@ h3 { margin-bottom: 10px; color: var(--ink); }
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(11, 13, 18, 0.88);
+  background: rgba(8, 8, 8, 0.92);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--line);
@@ -177,6 +199,8 @@ h3 { margin-bottom: 10px; color: var(--ink); }
   display: grid;
   gap: 24px;
   padding: 28px 0 64px;
+  position: relative;
+  z-index: 1;
 }
 
 .page {
@@ -1004,10 +1028,10 @@ textarea {
   display: grid;
   gap: 8px;
   margin: 16px 0;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  border: 1px solid rgba(156, 204, 10, 0.25);
   border-radius: 18px;
   padding: 14px 16px;
-  background: rgba(99, 102, 241, 0.08);
+  background: rgba(156, 204, 10, 0.08);
 }
 
 .adjustment-box strong { color: var(--indigo); }
@@ -1288,8 +1312,8 @@ textarea {
   margin: 14px 0 22px;
   padding: 14px 18px;
   border-radius: 18px;
-  background: rgba(91, 91, 247, 0.08);
-  border: 1px solid rgba(91, 91, 247, 0.18);
+  background: rgba(184, 230, 44, 0.08);
+  border: 1px solid rgba(184, 230, 44, 0.18);
 }
 
 .plan-status {
@@ -1541,7 +1565,7 @@ textarea {
 .cal-day-past { background: var(--bg-elevated); opacity: 0.85; }
 .cal-day-today {
   border-color: var(--primary);
-  background: rgba(91, 91, 247, 0.14);
+  background: rgba(184, 230, 44, 0.14);
 }
 .cal-day-done {
   background: rgba(5, 150, 105, 0.14);
@@ -1660,11 +1684,11 @@ textarea {
   margin-top: 4px;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(91, 91, 247, 0.10);
+  background: rgba(184, 230, 44, 0.10);
   color: var(--primary);
   font-size: 14px;
   font-weight: 700;
-  border: 1px solid rgba(91, 91, 247, 0.20);
+  border: 1px solid rgba(184, 230, 44, 0.20);
 }
 
 .log-preview strong { font-size: 16px; }
@@ -1722,8 +1746,8 @@ textarea {
 }
 
 .adjust-banner {
-  background: rgba(99, 102, 241, 0.10);
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: rgba(156, 204, 10, 0.10);
+  border: 1px solid rgba(156, 204, 10, 0.25);
   border-radius: 12px;
   padding: 12px 16px;
   margin-bottom: 18px;
@@ -2143,7 +2167,7 @@ textarea {
 
 .upload-zone.active {
   border-color: var(--primary);
-  background: rgba(91, 91, 247, 0.08);
+  background: rgba(184, 230, 44, 0.08);
   transform: scale(1.005);
 }
 
@@ -2201,7 +2225,7 @@ textarea {
   gap: 8px;
 }
 
-.pill-info { background: rgba(91, 91, 247, 0.12); color: var(--primary); }
+.pill-info { background: rgba(184, 230, 44, 0.12); color: var(--primary); }
 .pill-info strong { color: var(--primary); }
 .pill-ok { background: rgba(5, 150, 105, 0.12); color: var(--green); }
 .pill-ok strong { color: var(--green); }
