@@ -3029,6 +3029,11 @@ async function renderDashboardPage(app, user) {
         <a class="secondary-button" href="#/performance">记录我的成绩</a>
         <a class="secondary-button" href="#/analysis">生成能力分析</a>
         <a class="secondary-button" href="#/plan">查看训练计划</a>
+        <button id="pwa-install-btn" class="secondary-button"
+          style="display:${isAppInstalled ? 'none' : 'inline-flex'}; align-items:center; gap:8px"
+          onclick="triggerPWAInstall()">
+          📲 安装到桌面
+        </button>
       </div>
     </section>
   `;
