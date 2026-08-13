@@ -1010,33 +1010,39 @@ textarea {
 
 .weight-bar-item {
   display: grid;
-  grid-template-columns: 70px 1fr 36px;
+  grid-template-columns: 80px 1fr 40px;
   gap: 8px;
   align-items: center;
   margin-bottom: 6px;
   font-size: 13px;
 }
 
-.weight-bar-item .wb-label { color: var(--ink-secondary); font-weight: 700; }
-.weight-bar-item .wb-bar { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.weight-bar-item .wb-label { color: var(--ink); font-weight: 700; font-size: 12px; }
+.weight-bar-item .wb-bar { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .weight-bar-item .wb-bar span { display: block; height: 100%; border-radius: inherit; transition: width 0.4s ease; }
-.wb-default span { background: var(--muted); }
-.wb-adjusted span { background: var(--primary); }
-.weight-bar-item .wb-value { text-align: right; font-weight: 800; color: var(--ink); }
+.wb-default span { background: #8A8C87; }
+.wb-adjusted span { background: var(--primary); box-shadow: 0 0 6px rgba(217,238,99,0.35); }
+.weight-bar-item .wb-value { text-align: right; font-weight: 800; color: var(--ink); font-size: 13px; }
+
+.wb-default .wb-value { background: #8A8C87; color: #1a1b1b; border-radius: 6px; padding: 1px 6px; }
+.wb-adjusted .wb-value { background: var(--primary); color: #0C0D0D; border-radius: 6px; padding: 1px 6px; }
+
+.wb-default .wb-label { color: #8A8C87; }
+.wb-adjusted .wb-label { color: var(--primary); }
 
 /* 动态调整提示 */
 .adjustment-box {
   display: grid;
   gap: 8px;
   margin: 16px 0;
-  border: 1px solid rgba(156, 204, 10, 0.25);
+  border: 1px solid rgba(217, 238, 99, 0.30);
   border-radius: 18px;
   padding: 14px 16px;
-  background: rgba(156, 204, 10, 0.08);
+  background: rgba(217, 238, 99, 0.08);
 }
 
-.adjustment-box strong { color: var(--indigo); }
-.adjustment-box p { margin: 0; color: var(--ink-secondary); font-size: 13px; line-height: 1.6; }
+.adjustment-box strong { color: var(--primary); }
+.adjustment-box p { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.6; }
 
 /* 标签 pill */
 .pill-list {
@@ -1050,7 +1056,7 @@ textarea {
   border-radius: 999px;
   padding: 7px 11px;
   background: var(--bg-elevated);
-  color: var(--ink-secondary);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 800;
   border: 1px solid var(--line);
