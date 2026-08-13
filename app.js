@@ -898,6 +898,26 @@ function estimateMissingTimes(times, event, goalTime) {
     known[target] = estimates.length ? average(estimates) : null;
   }
 
+  // 单调性修复：确保 400 < 600 < 800 < 1500 < 3000 < 5000 < 10000 的每公里配速严格递减（即距离越长，每km用时越多）
+  // 顺序遍历：每公里用时 = perKm(总时间, 距离)，必须随距离递增
+  const order = [400, 600, 800, 1500, 3000, 5000, 10000];
+  let lastPerKm = 0;
+  for (let i = 0; i < order.length; i++) {
+    const d = order[i];
+    const t = known[d];
+    if (!t) continue;
+    const currentPerKm = t / (d / 1000);
+    // 每公里配速必须比上一个（更短距离）更慢，即 currentPerKm 必须 > lastPerKm
+    // 相邻项目最小减速比（Riegel 幂律约 1.04~1.06，取 1.025 下限）
+    const minAllowedPerKm = lastPerKm * 1.025;
+    if (currentPerKm < minAllowedPerKm && lastPerKm > 0) {
+      // 修复：按最小减速比重新计算总时间
+      const fixedPerKm = minAllowedPerKm;
+      known[d] = fixedPerKm * (d / 1000);
+    }
+    lastPerKm = Math.max(lastPerKm, t / (d / 1000));
+  }
+
   return known;
 }
 
@@ -1144,8 +1164,15 @@ function buildPaceHintForType(input, analysis, trainingType) {
   const per100 = (time, dist) => (time && dist ? time / (dist / 100) : null);
   const perKm = (time, dist) => (time && dist ? time / (dist / 1000) : null);
 
-  const thresholdPerKm = t5000 ? perKm(t5000, 5000) * 1.07 : (t3000 ? perKm(t3000, 3000) * 1.10 : null);
-  const easyPerKm = thresholdPerKm ? thresholdPerKm + 65 : null;
+  // 基于 5km 配速的标准分区（参考 Daniels Running Formula）
+  // Threshold (LT) = 约 5km 配速慢 11-13%
+  // Easy = 约 5km 配速慢 40-45%
+  // Recovery = 约 5km 配速慢 55-60%
+  const base5kPerKm = t5000 ? perKm(t5000, 5000) : (t3000 ? perKm(t3000, 3000) * 1.05 : null);
+  const thresholdPerKm = base5kPerKm ? base5kPerKm * 1.13 : null;
+  const easyPerKm = base5kPerKm ? base5kPerKm * 1.42 : null;
+  const recoveryPerKm = base5kPerKm ? base5kPerKm * 1.58 : null;
+  const marathonPerKm = base5kPerKm ? base5kPerKm * 1.19 : null;
   const sprintPer100 = t400 ? per100(t400, 400) * 0.92 : null;
   const racePer100 = goalTime ? per100(goalTime, event) : null;
 
@@ -1170,7 +1197,7 @@ function buildPaceHintForType(input, analysis, trainingType) {
     case "aerobic":
       return easyPerKm ? `配速：${fmt(easyPerKm)}/km（轻松跑，RPE 4-5）。` : "";
     case "recovery":
-      return easyPerKm ? `配速：${fmt(easyPerKm + 15)}/km（恢复跑，RPE 3）。` : "";
+      return recoveryPerKm ? `配速：${fmt(recoveryPerKm)}/km（恢复跑，RPE 3）。` : "";
     case "eventSpecific": {
       let longPace = null, longLabel = "";
       let midPace = null, midLabel = "";
@@ -1229,8 +1256,12 @@ function buildPaceTable(input, analysis) {
   const per400 = (time, dist) => (time && dist ? time / (dist / 400) : null);
   const perKm = (time, dist) => (time && dist ? time / (dist / 1000) : null);
 
-  const thresholdPerKm = t5000 ? perKm(t5000, 5000) * 1.07 : (t3000 ? perKm(t3000, 3000) * 1.10 : null);
-  const easyPerKm = thresholdPerKm ? thresholdPerKm + 65 : null;
+  // 基于 5km 配速的标准分区（参考 Daniels Running Formula）
+  const base5kPerKm = t5000 ? perKm(t5000, 5000) : (t3000 ? perKm(t3000, 3000) * 1.05 : null);
+  const thresholdPerKm = base5kPerKm ? base5kPerKm * 1.13 : null;
+  const marathonPerKm = base5kPerKm ? base5kPerKm * 1.19 : null;
+  const easyPerKm = base5kPerKm ? base5kPerKm * 1.42 : null;
+  const recoveryPerKm = base5kPerKm ? base5kPerKm * 1.58 : null;
   const sprintPer100 = t400 ? per100(t400, 400) * 0.92 : null;
   const racePer100 = goalTime ? per100(goalTime, event) : null;
 
@@ -1262,8 +1293,8 @@ function buildPaceTable(input, analysis) {
     rows.push({
       label: "1500m 配速",
       desc: "1500m 节奏、速度耐力间歇",
-      pace: `${formatPaceTime(per100(t1500, 1500))}/100m`,
-      detail: `400m 用时 ${formatPaceTime(per400(t1500, 1500))}`,
+      pace: `${formatPaceTime(perKm(t1500, 1500))}/km`,
+      detail: `400m 用时 ${formatPaceTime(per400(t1500, 1500))}，100m ${formatPaceTime(per100(t1500, 1500))}`,
     });
   }
 
@@ -1271,8 +1302,8 @@ function buildPaceTable(input, analysis) {
     rows.push({
       label: "3km 配速",
       desc: "VO₂max 间歇、中长间歇",
-      pace: `${formatPaceTime(per100(t3000, 3000))}/100m`,
-      detail: `400m 用时 ${formatPaceTime(per400(t3000, 3000))}，1km 用时 ${formatPaceTime(perKm(t3000, 3000))}`,
+      pace: `${formatPaceTime(perKm(t3000, 3000))}/km`,
+      detail: `400m 用时 ${formatPaceTime(per400(t3000, 3000))}，100m ${formatPaceTime(per100(t3000, 3000))}`,
     });
   }
 
@@ -1281,25 +1312,43 @@ function buildPaceTable(input, analysis) {
       label: "5km 配速",
       desc: "VO₂max 长间歇、5km 节奏",
       pace: `${formatPaceTime(perKm(t5000, 5000))}/km`,
-      detail: `400m 用时 ${formatPaceTime(per400(t5000, 5000))}`,
+      detail: `400m 用时 ${formatPaceTime(per400(t5000, 5000))}，100m ${formatPaceTime(per100(t5000, 5000))}`,
     });
   }
 
   if (thresholdPerKm) {
     rows.push({
-      label: "阈值配速",
-      desc: "节奏跑、阈值间歇",
+      label: "阈值配速 (LT)",
+      desc: "节奏跑、阈值间歇（RPE 7-8）",
       pace: `${formatPaceTime(thresholdPerKm)}/km`,
-      detail: `400m 用时 ${formatPaceTime(thresholdPerKm * 0.4)}`,
+      detail: `约比 5km 配速慢 12-13%，400m 用时 ${formatPaceTime(thresholdPerKm * 0.4)}`,
+    });
+  }
+
+  if (marathonPerKm) {
+    rows.push({
+      label: "马拉松配速",
+      desc: "专项耐力长间歇、长距离跑",
+      pace: `${formatPaceTime(marathonPerKm)}/km`,
+      detail: `约比 5km 配速慢 19%，400m 用时 ${formatPaceTime(marathonPerKm * 0.4)}`,
     });
   }
 
   if (easyPerKm) {
     rows.push({
       label: "轻松跑配速",
-      desc: "恢复跑、有氧长跑、热身/放松",
+      desc: "有氧长跑、热身/放松（RPE 4-5）",
       pace: `${formatPaceTime(easyPerKm)}/km`,
-      detail: `RPE 3-4，可以正常对话`,
+      detail: `约比 5km 配速慢 40-42%，可以正常对话`,
+    });
+  }
+
+  if (recoveryPerKm) {
+    rows.push({
+      label: "恢复跑配速",
+      desc: "高强度课后次日、连续训练日早晨（RPE 2-3）",
+      pace: `${formatPaceTime(recoveryPerKm)}/km`,
+      detail: `约比 5km 配速慢 55-58%，完全放松不追速度`,
     });
   }
 
