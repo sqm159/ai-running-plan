@@ -921,6 +921,27 @@ function estimateMissingTimes(times, event, goalTime) {
   return known;
 }
 
+// 渲染时用的估算成绩标准化修复（针对数据库里保存的旧分析，防止配速反常）
+function normalizeEstimatedForDisplay(est) {
+  if (!est) return est;
+  const out = { ...est };
+  const order = [400, 600, 800, 1500, 3000, 5000, 10000];
+  let lastPerKm = 0;
+  for (let i = 0; i < order.length; i++) {
+    const d = order[i];
+    const t = out[d];
+    if (!t) continue;
+    const perKm = t / (d / 1000);
+    const minPerKm = lastPerKm * 1.025;
+    if (perKm < minPerKm && lastPerKm > 0) {
+      // 自动把反常的配速拉回正常（比上一个慢 2.5%）
+      out[d] = minPerKm * (d / 1000);
+    }
+    lastPerKm = Math.max(lastPerKm, out[d] / (d / 1000));
+  }
+  return out;
+}
+
 function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
@@ -1150,7 +1171,7 @@ function buildPaceHint(goalTime, event) {
 /* ===================== 6. 配速体系 ===================== */
 
 function buildPaceHintForType(input, analysis, trainingType) {
-  const est = analysis.estimated;
+  const est = normalizeEstimatedForDisplay(analysis.estimated);
   const event = Number(input.event);
   const goalTime = input.goalTime;
 
@@ -1241,7 +1262,7 @@ function formatPaceTime(seconds) {
 }
 
 function buildPaceTable(input, analysis) {
-  const est = analysis.estimated;
+  const est = normalizeEstimatedForDisplay(analysis.estimated);
   const event = Number(input.event);
   const goalTime = input.goalTime;
 
