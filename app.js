@@ -1582,7 +1582,7 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     ctx.fill();
   }
 
-  drawPolygon(currentScores, "rgba(200,230,44,0.18)", "rgba(200,230,44,0.95)", 2.5);
+  drawPolygon(currentScores, "rgba(212,230,44,0.18)", "rgba(212,230,44,0.95)", 2.5);
 
   for (let i = 0; i < n; i++) {
     const r = valToRadius(currentScores[dims[i]]);
@@ -1591,7 +1591,7 @@ function drawRadarChart(canvasId, currentScores, targetScores) {
     const y = cy + Math.sin(angle) * r;
     ctx.beginPath();
     ctx.arc(x, y, 5, 0, Math.PI * 2);
-    ctx.fillStyle = "#C8E62C";
+    ctx.fillStyle = "#D4E62C";
     ctx.fill();
     ctx.strokeStyle = "white";
     ctx.lineWidth = 2;
@@ -4145,8 +4145,8 @@ async function renderCalendarPage(app, user) {
             <span class="cal-wd">${weekdayName(date)}</span>
             <span class="cal-date">${date.getMonth() + 1}/${date.getDate()}</span>
           </div>
-          <div class="cal-day-title">${escapeHtml(dayShort)}${isAdjusted ? ` <span style="color:#B8CC0A;font-size:10px;">🔧</span>` : ""}</div>
-          <div class="cal-day-status">${adjustedLabel ? `<span style="color:#B8CC0A;">${adjustedLabel}</span> · ` : ""}${statusLabel}</div>
+          <div class="cal-day-title">${escapeHtml(dayShort)}${isAdjusted ? ` <span style="color:#C4CC0A;font-size:10px;">🔧</span>` : ""}</div>
+          <div class="cal-day-status">${adjustedLabel ? `<span style="color:#C4CC0A;">${adjustedLabel}</span> · ` : ""}${statusLabel}</div>
           ${log?.training_load ? `<div class="cal-day-load">${log.training_load} AU</div>` : ""}
         </a>
       `);
