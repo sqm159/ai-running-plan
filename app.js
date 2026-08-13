@@ -942,12 +942,14 @@ function buildDynamicFactors(riegelExp) {
     800: { 400: 2.17, 1500: 0.49, 3000: 0.23, 5000: 0.13, 10000: 0.061 },
   };
 
-  // 1) 中长距离互相换算：严格幂律，保证双向一致
+  // 1) 中长距离互相换算：严格幂律，保证双向一致（factors[a][b] * factors[b][a] = 1）
+  //    标准 Riegel：T[target] = T[src] * (D_target / D_src)^exp，
+  //    即 factors[target=a][src=b] = (a / b)^exp
   MID_LONG.forEach((a) => {
     if (!factors[a]) factors[a] = {};
     MID_LONG.forEach((b) => {
       if (a === b) return;
-      factors[a][b] = +Math.pow(b / a, riegelExp).toFixed(4);
+      factors[a][b] = +Math.pow(a / b, riegelExp).toFixed(4);
     });
   });
 
@@ -966,7 +968,8 @@ function buildDynamicFactors(riegelExp) {
     MID_LONG.forEach((ml) => {
       if (factors[sh][ml]) return;
       const shTo1500 = factors[sh]?.[1500] ?? (1 / (factors[1500]?.[sh] || 1));
-      factors[sh][ml] = +(shTo1500 * Math.pow(ml / 1500, riegelExp)).toFixed(3);
+      // T[sh] = T[ml] × (sh/ml)^R = T[sh→1500锚点] × T[1500→ml换算]
+      factors[sh][ml] = +(shTo1500 * Math.pow(1500 / ml, riegelExp)).toFixed(3);
       // 反向补齐
       if (!factors[ml]) factors[ml] = {};
       factors[ml][sh] = +(1 / factors[sh][ml]).toFixed(3);
@@ -978,7 +981,8 @@ function buildDynamicFactors(riegelExp) {
 
 function estimateMissingTimes(times, event, goalTime, age) {
   const known = { ...times };
-  if (!known[event]) known[event] = goalTime * 1.08;
+  // 只有在用户确实填了目标成绩（goalTime 有效正数）时才锚定目标项目
+  if (!known[event] && Number(goalTime) > 0) known[event] = goalTime * 1.08;
 
   // 根据实际水平动态生成换算表（3km=10:00 青少年会用更保守的高指数）
   const riegel = computeRiegelExponent(known, age);
