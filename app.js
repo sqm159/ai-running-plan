@@ -3048,6 +3048,11 @@ function renderLanding(app) {
           <div class="hero-actions">
             <a class="primary-button" href="#/auth">注册 / 登录</a>
             <a class="secondary-button" href="#/analysis">直接试用分析</a>
+            <button id="pwa-install-btn" class="secondary-button"
+              style="display:${isAppInstalled ? 'none' : 'inline-flex'}; align-items:center; gap:8px"
+              onclick="triggerPWAInstall()">
+              📲 安装到桌面
+            </button>
           </div>
         </div>
         <div class="hero-card">
@@ -5621,6 +5626,56 @@ async function renderSyncPage(app, user) {
       "当前纯前端版本仅支持文件上传导入，这是最稳定、不依赖第三方服务的方案。"
     );
   });
+}
+
+/* ===================== PWA 安装支持 ===================== */
+
+let deferredInstallPrompt = null;
+let isAppInstalled = false;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  // 如果首页已渲染，刷新按钮显示
+  const btn = document.getElementById("pwa-install-btn");
+  if (btn) btn.style.display = "inline-flex";
+});
+
+window.addEventListener("appinstalled", () => {
+  isAppInstalled = true;
+  deferredInstallPrompt = null;
+  const btn = document.getElementById("pwa-install-btn");
+  if (btn) {
+    btn.textContent = "✅ 已安装";
+    btn.disabled = true;
+  }
+});
+
+if (window.matchMedia("(display-mode: standalone)").matches) {
+  isAppInstalled = true;
+}
+
+async function triggerPWAInstall() {
+  const btn = document.getElementById("pwa-install-btn");
+  if (isAppInstalled) {
+    alert("NextLap 已安装到主屏幕。");
+    return;
+  }
+  if (!deferredInstallPrompt) {
+    // 退而求其次：用菜单提示（iOS/不支持自动安装时）
+    alert("Chrome 尚未准备好安装提示。请尝试：\n\n1. 点右上角三个点 ⋮\n2. 选「安装应用」或「添加到主屏幕」\n\n如果还没看到，等页面加载 10 秒后刷新再试。");
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  const { outcome } = await deferredInstallPrompt.userChoice;
+  if (outcome === "accepted") {
+    isAppInstalled = true;
+    if (btn) {
+      btn.textContent = "✅ 已安装";
+      btn.disabled = true;
+    }
+  }
+  deferredInstallPrompt = null;
 }
 
 /* ===================== 10. 启动引导 ===================== */
