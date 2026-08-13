@@ -10,8 +10,8 @@ const RUNTIME_CACHE = "nextlap-runtime-v6";
 const PRECACHE_URLS = [
   "./",
   "./index.html",
-  "./styles.css?v=29",
-  "./app.js?v=29",
+  "./styles.css?v=31",
+  "./app.js?v=31",
   "./manifest.json",
   "./logo.png",
   "./supabase-config.js",
