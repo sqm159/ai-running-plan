@@ -999,6 +999,10 @@ textarea {
   gap: 12px;
 }
 
+.weight-col {
+  min-width: 0;
+}
+
 .weight-col h5 {
   margin: 0 0 8px;
   font-size: 13px;
@@ -1010,31 +1014,32 @@ textarea {
 
 .weight-bar-item {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-size: 13px;
+  min-width: 0;
 }
 
 .weight-bar-item .wb-label {
-  flex: 0 0 100px;
-  width: 100px;
-  max-width: 100px;
+  flex: 0 0 70px;
+  width: 70px;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.2;
   white-space: nowrap;
   overflow: visible;
-  z-index: 1;
+  z-index: 10;
+  position: relative;
 }
 
 .weight-bar-item .wb-bar {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   height: 10px;
   border-radius: 999px;
   background: var(--line);
   overflow: hidden;
-  min-width: 40px;
+  min-width: 30px;
 }
 
 .weight-bar-item .wb-bar span { display: block; height: 100%; border-radius: inherit; transition: width 0.4s ease; }
@@ -1042,20 +1047,25 @@ textarea {
 .wb-adjusted span { background: var(--primary); box-shadow: 0 0 6px rgba(217,238,99,0.35); }
 
 .weight-bar-item .wb-value {
-  flex: 0 0 34px;
-  width: 34px;
+  flex: 0 0 30px;
+  width: 30px;
   text-align: center;
   font-weight: 800;
-  font-size: 13px;
-  border-radius: 6px;
-  padding: 2px 4px;
+  font-size: 12px;
+  border-radius: 5px;
+  padding: 1px 3px;
 }
 
 .wb-default .wb-value { background: #8A8C87; color: #0C0D0D; }
 .wb-adjusted .wb-value { background: var(--primary); color: #0C0D0D; }
 
 .wb-default .wb-label { color: #F3F3F0 !important; }
-.wb-adjusted .wb-label { color: #D9EE63 !important; }
+.wb-adjusted .wb-label {
+  color: #0C0D0D !important;
+  background: rgba(217, 238, 99, 0.85);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
 
 /* 动态调整提示 */
 .adjustment-box {
