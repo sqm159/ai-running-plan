@@ -13,40 +13,33 @@
   "dir": "ltr",
   "icons": [
     {
-      "src": "./icons/icon-192(1).jpg",
-      "sizes": "192x192",
-      "type": "image/jpeg",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-512(1).jpg",
+      "src": "./icons/logo.png",
       "sizes": "512x512",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ],
-  "screenshots": [],
   "shortcuts": [
     {
       "name": "首页",
       "short_name": "首页",
       "description": "打开 NextLap 首页",
       "url": "./index.html#/",
-      "icons": [{ "src": "./icons/icon-192(1).jpg", "sizes": "192x192" }]
+      "icons": [{ "src": "./icons/logo.png", "sizes": "512x512" }]
     },
     {
       "name": "训练日历",
       "short_name": "训练日历",
       "description": "查看今日训练安排",
       "url": "./index.html#/calendar",
-      "icons": [{ "src": "./icons/icon-192(1).jpg", "sizes": "192x192" }]
+      "icons": [{ "src": "./icons/logo.png", "sizes": "512x512" }]
     },
     {
       "name": "能力分析",
       "short_name": "能力分析",
       "description": "查看能力分析结果",
       "url": "./index.html#/analysis",
-      "icons": [{ "src": "./icons/icon-192(1).jpg", "sizes": "192x192" }]
+      "icons": [{ "src": "./icons/logo.png", "sizes": "512x512" }]
     }
   ]
 }
