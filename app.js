@@ -512,6 +512,15 @@ function readInput() {
 
   if (!input.goalTime) throw new Error("请填写目标成绩。");
   if (input.weeks < 4 || input.weeks > 24) throw new Error("训练周期建议设置在 4 到 24 周之间。");
+
+  // 校验：至少需要 2 项不同距离的成绩才能进行可靠分析
+  const filledTimes = Object.values(input.times).filter((t) => Number(t) > 0);
+  if (filledTimes.length < 2) {
+    throw new Error(
+      "你输入的成绩太少了（仅 " + filledTimes.length + " 项），无法进行准确分析。请至少填写 2 项不同距离的最近成绩后重试。"
+    );
+  }
+
   return input;
 }
 
