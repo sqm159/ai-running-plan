@@ -990,10 +990,8 @@ function buildDynamicFactors(riegelExp) {
 
 function estimateMissingTimes(times, event, goalTime, age) {
   const known = { ...times };
-  // 只有在用户确实填了目标成绩（goalTime 有效正数）时才锚定目标项目
-  if (!known[event] && Number(goalTime) > 0) known[event] = goalTime * 1.08;
 
-  // 根据实际水平动态生成换算表（3km=10:00 青少年会用更保守的高指数）
+  // 根据实际输入的真实成绩动态生成换算表（goalTime 只是目标，不是真实成绩，不能参与水平分级！）
   const riegel = computeRiegelExponent(known, age);
   const factors = buildDynamicFactors(riegel);
   known._riegelExponent = riegel; // 调试/展示用
