@@ -46,6 +46,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   min-height: 100vh;
   position: relative;
+  overflow-x: hidden;
 }
 
 /* 山脉半透明背景蒙版 */
@@ -1987,6 +1988,7 @@ textarea {
 @media (max-width: 560px) {
   .cal-week-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .cal-summary {
@@ -1994,6 +1996,39 @@ textarea {
   }
 
   .log-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .logs-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 训练日志表格：小屏可横向滚动，避免 7 列撑开页面导致整体被挤压 */
+  .logs-list-block {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .logs-table {
+    min-width: 520px;
+  }
+
+  .logs-bar-chart {
+    gap: 4px;
+    height: 110px;
+  }
+}
+
+@media (max-width: 400px) {
+  .cal-week-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cal-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .logs-summary {
     grid-template-columns: 1fr;
   }
 }

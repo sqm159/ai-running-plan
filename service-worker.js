@@ -3,14 +3,14 @@
  * 负责：离线缓存 + 资源预加载 + 运行时缓存
  * ============================================================ */
 
-const CACHE_NAME = "nextlap-cache-v11";
-const RUNTIME_CACHE = "nextlap-runtime-v11";
+const CACHE_NAME = "nextlap-cache-v12";
+const RUNTIME_CACHE = "nextlap-runtime-v12";
 
 /* -------- 预缓存（App Shell 核心资源） -------- */
 const PRECACHE_URLS = [
   "./",
   "./index.html",
-  "./styles.css?v=36",
+  "./styles.css?v=37",
   "./app.js?v=36",
   "./manifest.json",
   "./logo.png",
