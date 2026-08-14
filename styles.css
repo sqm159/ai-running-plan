@@ -1336,12 +1336,37 @@ textarea {
     margin-left: 0;
   }
 
+  /* 登录后邮箱地址过长会撑开导航栏、遮挡菜单，这里限制宽度并省略号截断 */
+  .nav-auth {
+    flex-shrink: 1;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .nav-user {
+    max-width: 140px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
   .form-grid,
   .form-grid.cols-3 {
     grid-template-columns: 1fr;
   }
 
   h1 { font-size: 38px; }
+}
+
+@media (max-width: 400px) {
+  .nav-user {
+    max-width: 90px;
+  }
+
+  .nav-auth .ghost-button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
 }
 
 /* =========================================================================
