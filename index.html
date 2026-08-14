@@ -93,5 +93,26 @@
       });
     }
   </script>
+
+  <!-- 微信内打开时引导用户用系统浏览器 -->
+  <script>
+    (function () {
+      var ua = navigator.userAgent.toLowerCase();
+      var isWeChat = ua.indexOf("micromessenger") !== -1;
+      if (isWeChat) {
+        var bar = document.createElement("div");
+        bar.id = "wechat-open-browser-tip";
+        bar.style.cssText =
+          "position:fixed;top:0;left:0;right:0;z-index:99999;" +
+          "background:#1a1a2e;color:#e0e0e0;font-size:14px;padding:10px 16px;" +
+          "display:flex;align-items:center;justify-content:space-between;" +
+          "box-shadow:0 2px 8px rgba(0,0,0,.5);font-family:system-ui,sans-serif;";
+        bar.innerHTML =
+          '<span>微信无法安装App，请点击右上角 ⋮ →「在浏览器打开」</span>' +
+          '<span style="color:#4fc3f7;font-weight:bold;white-space:nowrap;margin-left:12px;cursor:pointer;" onclick="this.parentElement.remove()">关闭</span>';
+        document.body.appendChild(bar);
+      }
+    })();
+  </script>
 </body>
 </html>
