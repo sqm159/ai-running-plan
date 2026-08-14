@@ -3,15 +3,15 @@
  * 负责：离线缓存 + 资源预加载 + 运行时缓存
  * ============================================================ */
 
-const CACHE_NAME = "nextlap-cache-v6";
-const RUNTIME_CACHE = "nextlap-runtime-v6";
+const CACHE_NAME = "nextlap-cache-v7";
+const RUNTIME_CACHE = "nextlap-runtime-v7";
 
 /* -------- 预缓存（App Shell 核心资源） -------- */
 const PRECACHE_URLS = [
   "./",
   "./index.html",
-  "./styles.css?v=31",
-  "./app.js?v=31",
+  "./styles.css?v=32",
+  "./app.js?v=32",
   "./manifest.json",
   "./logo.png",
   "./supabase-config.js",
