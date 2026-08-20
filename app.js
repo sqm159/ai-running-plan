@@ -4813,89 +4813,163 @@ async function renderDayPage(app, user, dateStr) {
                 <option value="skipped" ${log?.status === "skipped" ? "selected" : ""}>跳过 / 休息</option>
               </select>
             </label>
-            <div class="log-grid">
-              <label>
-                训练时长（分钟）
-                <input type="number" id="logDuration" min="0" max="600" value="${log?.duration_min ?? ""}" placeholder="如 60" />
-              </label>
-              <label>
-                距离（km）
-                <input type="number" id="logDistance" min="0" max="200" step="0.1" value="${log?.distance_km ?? ""}" placeholder="如 8.5" />
-              </label>
-              <label>
-                平均心率
-                <input type="number" id="logHr" min="40" max="220" value="${log?.avg_hr ?? ""}" placeholder="如 155" />
-              </label>
-              <label>
-                RPE（主观强度 6-20）
-                <input type="number" id="logRpe" min="6" max="20" step="0.5" value="${log?.rpe ?? ""}" placeholder="如 13" />
-              </label>
-            </div>
-            <label>
-              主观感受
-              <select id="logFeeling">
-                <option value="" ${!log?.feeling ? "selected" : ""}}>—</option>
-                <option value="great" ${log?.feeling === "great" ? "selected" : ""}>状态很好</option>
-                <option value="good" ${log?.feeling === "good" ? "selected" : ""}>感觉不错</option>
-                <option value="normal" ${log?.feeling === "normal" ? "selected" : ""}>一般</option>
-                <option value="tired" ${log?.feeling === "tired" ? "selected" : ""}>有些累</option>
-                <option value="bad" ${log?.feeling === "bad" ? "selected" : ""}>很疲惫</option>
-              </select>
-            </label>
-            <label>
-              备注
-              <textarea id="logNote" rows="3" placeholder="如：小腿略紧，最后 2 组降速">${escapeHtml(log?.note || "")}</textarea>
-            </label>
-            <details class="log-v2-structure" id="logV2Details">
-              <summary>间歇结构（可选）· Training Load V2</summary>
-              <p class="form-note">不填也可以保存。旧日志字段保持不变；补充组数/间歇后，V2 会按 incomplete-data 规则计分，而不是把缺秒数当成 0。</p>
+
+            <section class="log-block">
+              <div class="log-block-head">
+                <h4>1. 热身</h4>
+                <label class="log-skip">
+                  <input type="checkbox" id="logWarmupSkip" />
+                  跳过热身
+                </label>
+              </div>
+              <p class="form-note">没有热身就勾选跳过。配速可写 5:40/km。</p>
+              <div id="logWarmupFields" class="log-grid">
+                <label>
+                  时长（分钟）
+                  <input type="number" id="logWarmupDuration" min="0" max="180" step="1" placeholder="如 15" />
+                </label>
+                <label>
+                  距离（km）
+                  <input type="number" id="logWarmupDistance" min="0" max="30" step="0.1" placeholder="如 2.0" />
+                </label>
+                <label>
+                  配速
+                  <input type="text" id="logWarmupPace" placeholder="如 5:40/km" />
+                </label>
+                <label>
+                  平均心率
+                  <input type="number" id="logWarmupHr" min="40" max="220" placeholder="如 140" />
+                </label>
+              </div>
+            </section>
+
+            <section class="log-block log-block-main">
+              <div class="log-block-head">
+                <h4>2. 正式训练</h4>
+              </div>
+              <p class="form-note">这里只记中间的主课。热身和放松写在上下两段，不要加进这里的时长和距离。</p>
               <div class="log-grid">
                 <label>
-                  组数 repetitions
-                  <input type="number" id="logV2Reps" min="1" max="80" placeholder="如 8" />
+                  训练时长（分钟）
+                  <input type="number" id="logDuration" min="0" max="600" value="${log?.duration_min ?? ""}" placeholder="如 60" />
                 </label>
                 <label>
-                  每组距离 rep distance（m）
-                  <input type="number" id="logV2RepDistance" min="0" max="10000" step="1" placeholder="如 400" />
+                  距离（km）
+                  <input type="number" id="logDistance" min="0" max="200" step="0.1" value="${log?.distance_km ?? ""}" placeholder="如 8.5" />
                 </label>
                 <label>
-                  每组时间 / 配速
-                  <input type="text" id="logV2RepTime" placeholder="如 69–70 或 2:35,2:38,2:39 或 约 3:20/km" />
+                  平均心率
+                  <input type="number" id="logHr" min="40" max="220" value="${log?.avg_hr ?? ""}" placeholder="如 155" />
                 </label>
                 <label>
-                  组间恢复 duration
-                  <input type="text" id="logV2Recovery" placeholder="如 60 或 210–240 或 约 3分钟" />
-                </label>
-                <label>
-                  恢复类型 recovery type
-                  <select id="logV2RecoveryType">
-                    <option value="">—</option>
-                    <option value="walk/stand">走/站 walk/stand</option>
-                    <option value="jog">慢跑 jog</option>
-                    <option value="none">无间歇 none</option>
-                    <option value="unknown">未知 unknown</option>
-                  </select>
-                </label>
-                <label>
-                  数据精度 provenance
-                  <select id="logV2Provenance">
-                    <option value="exact">exact 精确</option>
-                    <option value="range">range 区间</option>
-                    <option value="approx">approx 大约</option>
-                    <option value="summary">summary 部分组</option>
-                    <option value="unknown">unknown 未知</option>
-                  </select>
+                  RPE（主观强度 6-20）
+                  <input type="number" id="logRpe" min="6" max="20" step="0.5" value="${log?.rpe ?? ""}" placeholder="如 13" />
                 </label>
               </div>
               <label>
-                间歇结构 interval structure
-                <input type="text" id="logV2IntervalStructure" placeholder="如 8×400 rest 60s" />
+                主观感受
+                <select id="logFeeling">
+                  <option value="" ${!log?.feeling ? "selected" : ""}}>—</option>
+                  <option value="great" ${log?.feeling === "great" ? "selected" : ""}>状态很好</option>
+                  <option value="good" ${log?.feeling === "good" ? "selected" : ""}>感觉不错</option>
+                  <option value="normal" ${log?.feeling === "normal" ? "selected" : ""}>一般</option>
+                  <option value="tired" ${log?.feeling === "tired" ? "selected" : ""}>有些累</option>
+                  <option value="bad" ${log?.feeling === "bad" ? "selected" : ""}>很疲惫</option>
+                </select>
               </label>
-              <label class="log-v2-heat">
-                <input type="checkbox" id="logV2HeatHot" />
-                <span>今日天气较热（热负荷仅作参考，不改变四维分数）</span>
+              <label>
+                备注
+                <textarea id="logNote" rows="3" placeholder="如：小腿略紧，最后 2 组降速">${escapeHtml(log?.note || "")}</textarea>
               </label>
-            </details>
+              <details class="log-v2-structure" id="logV2Details">
+                <summary>间歇结构（可选）</summary>
+                <p class="form-note">不填也可以保存。适合 8×400 这种每组距离一样的课。</p>
+                <div class="log-grid">
+                  <label>
+                    组数 repetitions
+                    <input type="number" id="logV2Reps" min="1" max="80" placeholder="如 8" />
+                  </label>
+                  <label>
+                    每组距离 rep distance（m）
+                    <input type="number" id="logV2RepDistance" min="0" max="10000" step="1" placeholder="如 400" />
+                  </label>
+                  <label>
+                    每组时间 / 配速
+                    <input type="text" id="logV2RepTime" placeholder="如 69–70 或 2:35,2:38,2:39 或 约 3:20/km" />
+                  </label>
+                  <label>
+                    组间恢复 duration
+                    <input type="text" id="logV2Recovery" placeholder="如 60 或 210–240 或 约 3分钟" />
+                  </label>
+                  <label>
+                    恢复类型 recovery type
+                    <select id="logV2RecoveryType">
+                      <option value="">—</option>
+                      <option value="walk/stand">走/站 walk/stand</option>
+                      <option value="jog">慢跑 jog</option>
+                      <option value="none">无间歇 none</option>
+                      <option value="unknown">未知 unknown</option>
+                    </select>
+                  </label>
+                  <label>
+                    数据精度 provenance
+                    <select id="logV2Provenance">
+                      <option value="exact">exact 精确</option>
+                      <option value="range">range 区间</option>
+                      <option value="approx">approx 大约</option>
+                      <option value="summary">summary 部分组</option>
+                      <option value="unknown">unknown 未知</option>
+                    </select>
+                  </label>
+                </div>
+                <label>
+                  间歇结构 interval structure
+                  <input type="text" id="logV2IntervalStructure" placeholder="如 8×400 rest 60s" />
+                </label>
+                <label class="log-v2-heat">
+                  <input type="checkbox" id="logV2HeatHot" />
+                  <span>今日天气较热（热负荷仅作参考，不改变四维分数）</span>
+                </label>
+              </details>
+              <div class="log-v2-structure log-combo-block">
+                <div class="log-block-head">
+                  <h4>自由组合（可选）</h4>
+                </div>
+                <p class="form-note">适合 2×(1000+600+400) 这种一组里距离不同的课。每加一段都会带一个组间恢复。每组距离相同的课请用上面的间歇结构。</p>
+                <input type="hidden" id="logV2ComboJson" value="" />
+                <div id="logComboHost"></div>
+              </div>
+            </section>
+
+            <section class="log-block">
+              <div class="log-block-head">
+                <h4>3. 放松</h4>
+                <label class="log-skip">
+                  <input type="checkbox" id="logCooldownSkip" />
+                  跳过放松
+                </label>
+              </div>
+              <p class="form-note">没有放松就勾选跳过。</p>
+              <div id="logCooldownFields" class="log-grid">
+                <label>
+                  时长（分钟）
+                  <input type="number" id="logCooldownDuration" min="0" max="180" step="1" placeholder="如 10" />
+                </label>
+                <label>
+                  距离（km）
+                  <input type="number" id="logCooldownDistance" min="0" max="30" step="0.1" placeholder="如 1.5" />
+                </label>
+                <label>
+                  配速
+                  <input type="text" id="logCooldownPace" placeholder="如 6:00/km" />
+                </label>
+                <label>
+                  平均心率
+                  <input type="number" id="logCooldownHr" min="40" max="220" placeholder="如 130" />
+                </label>
+              </div>
+            </section>
+
             <div class="log-actions">
               <button type="submit" class="primary-button" id="logSubmit">${log ? "更新日志" : "保存日志"}</button>
               ${log ? `<button type="button" class="ghost-button" id="logDelete">删除</button>` : ""}
@@ -4946,6 +5020,16 @@ async function renderDayPage(app, user, dateStr) {
     "logDistance",
     "logRpe",
     "logHr",
+    "logWarmupSkip",
+    "logWarmupDuration",
+    "logWarmupDistance",
+    "logWarmupPace",
+    "logWarmupHr",
+    "logCooldownSkip",
+    "logCooldownDuration",
+    "logCooldownDistance",
+    "logCooldownPace",
+    "logCooldownHr",
     "logV2Reps",
     "logV2RepDistance",
     "logV2RepTime",
@@ -4960,6 +5044,15 @@ async function renderDayPage(app, user, dateStr) {
     document.getElementById(id)?.addEventListener("input", updatePreview);
     document.getElementById(id)?.addEventListener("change", updatePreview);
   });
+  ["logWarmupSkip", "logCooldownSkip"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("change", () => {
+      if (window.TrainingLoadV2App) window.TrainingLoadV2App.applyAuxSkipVisibility();
+    });
+  });
+  if (window.TrainingLoadV2App) window.TrainingLoadV2App.applyAuxSkipVisibility();
+  if (window.TrainingLoadV2App) {
+    window.TrainingLoadV2App.mountComboBuilder(document.getElementById("logComboHost"), updatePreview);
+  }
   refreshLoadV2Card(collectDayLogDraft());
 
   // 提交日志

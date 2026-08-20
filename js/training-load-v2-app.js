@@ -174,10 +174,363 @@
     return !(t[400] > 0 && t[5000] > 0);
   }
 
+  function parsePaceSecPerKm(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return null;
+    const m = s
+      .replace(/／/g, "/")
+      .replace(/'/g, ":")
+      .match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
+    if (!m) return null;
+    const sec = Number(m[1]) * 60 + Number(m[2]);
+    return sec > 0 ? sec : null;
+  }
+
+  function collectAuxBout(prefix) {
+    const el = (id) => document.getElementById(id);
+    if (!el(prefix + "Skip") && !el(prefix + "Duration")) return null;
+    const skipped = Boolean(el(prefix + "Skip") && el(prefix + "Skip").checked);
+    const durationMin = Number(el(prefix + "Duration") && el(prefix + "Duration").value) || null;
+    const distanceKm = Number(el(prefix + "Distance") && el(prefix + "Distance").value) || null;
+    const paceRaw = ((el(prefix + "Pace") && el(prefix + "Pace").value) || "").trim() || null;
+    const avgHr = Number(el(prefix + "Hr") && el(prefix + "Hr").value) || null;
+    if (skipped) return { skipped: true, durationMin, distanceKm, paceRaw, avgHr };
+    if (!durationMin && !distanceKm && !paceRaw && !avgHr) return null;
+    return {
+      skipped: false,
+      durationMin,
+      distanceKm,
+      paceRaw,
+      avgHr,
+    };
+  }
+
+  function fillAuxBout(prefix, bout) {
+    const set = (id, v) => {
+      const n = document.getElementById(id);
+      if (n) n.value = v == null || v === "" ? "" : String(v);
+    };
+    const skip = document.getElementById(prefix + "Skip");
+    if (skip) skip.checked = Boolean(bout && bout.skipped);
+    set(prefix + "Duration", bout ? bout.durationMin : "");
+    set(prefix + "Distance", bout ? bout.distanceKm : "");
+    set(prefix + "Pace", bout ? bout.paceRaw : "");
+    set(prefix + "Hr", bout ? bout.avgHr : "");
+  }
+
+  function applyAuxSkipVisibility() {
+    if (typeof document === "undefined") return;
+    ["logWarmup", "logCooldown"].forEach((prefix) => {
+      const skip = document.getElementById(prefix + "Skip");
+      const fields = document.getElementById(prefix + "Fields");
+      if (fields) fields.hidden = Boolean(skip && skip.checked);
+    });
+  }
+
+  function auxPartFromBout(block, bout) {
+    if (!bout || bout.skipped) return null;
+    let durationS = Number(bout.durationMin) > 0 ? Number(bout.durationMin) * 60 : null;
+    let distanceM = Number(bout.distanceKm) > 0 ? Number(bout.distanceKm) * 1000 : null;
+    const pace = parsePaceSecPerKm(bout.paceRaw);
+    if (pace && distanceM && !durationS) durationS = (distanceM / 1000) * pace;
+    if (pace && durationS && !distanceM) distanceM = (durationS / pace) * 1000;
+    if (!(durationS > 0) && !(distanceM > 0)) return null;
+    return workRep({
+      block,
+      distance_m: distanceM,
+      duration_s: durationS,
+      rest_s: 0,
+      restProvenance: "none",
+      hr_avg: Number(bout.avgHr) > 0 ? Number(bout.avgHr) : null,
+    });
+  }
+
+  function attachAuxParts(session, input) {
+    if (!session || !input) return session;
+    const existing = session.parts || [];
+    const alreadyWrapped = existing.some((p) => p && (p.block === "warmup" || p.block === "cooldown"));
+    if (alreadyWrapped) return session;
+    const warmup = auxPartFromBout("warmup", input.warmup);
+    const cooldown = auxPartFromBout("cooldown", input.cooldown);
+    if (!warmup && !cooldown) return session;
+    session.parts = [warmup, ...existing, cooldown].filter(Boolean);
+    session.warmup = warmup || null;
+    session.cooldown = cooldown || null;
+    return session;
+  }
+
+  function sessionShellFromLog(log, extra) {
+    return {
+      id: log.id || "app-log",
+      name: log.planned_title || "session",
+      source: "training_log",
+      completed: log.status === "completed" || log.status === "partial",
+      type_hint: "run",
+      warmup: null,
+      cooldown: null,
+      hrSessionAvg: log.avg_hr != null ? Number(log.avg_hr) : null,
+      rpe_6_20: log.rpe != null ? Number(log.rpe) : null,
+      prescription: log.planned_detail || "",
+      parts: [],
+      ...extra,
+    };
+  }
+
+  function comboId() {
+    return "g" + Math.random().toString(36).slice(2, 9);
+  }
+
+  function parseComboGroups(raw) {
+    try {
+      const parsed = JSON.parse(String(raw || ""));
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.groups)) return parsed.groups;
+    } catch (_) {
+      /* ignore broken draft */
+    }
+    return [];
+  }
+
+  function makeComboStep(distanceM) {
+    return {
+      id: comboId(),
+      distanceM: Number(distanceM) > 0 ? Number(distanceM) : null,
+      durationRaw: "",
+      restRaw: "",
+    };
+  }
+
+  function exampleComboGroups() {
+    return [
+      {
+        id: comboId(),
+        times: 2,
+        steps: [makeComboStep(1000), makeComboStep(600), makeComboStep(400)],
+      },
+    ];
+  }
+
+  function comboGroupsHaveWork(groups) {
+    return (groups || []).some((group) =>
+      (group.steps || []).some(
+        (step) => Number(step.distanceM) > 0 || Boolean(parseDurationToken(step.durationRaw))
+      )
+    );
+  }
+
+  function formatComboStepShort(step) {
+    const n = Number(step && step.distanceM);
+    if (n > 0) {
+      if (n % 1000 === 0) return n / 1000 + "km";
+      if (n >= 1000) return (n / 1000).toFixed(n % 100 === 0 ? 1 : 2) + "km";
+      return Math.round(n) + "m";
+    }
+    return String((step && step.durationRaw) || "").trim() || "?";
+  }
+
+  function formatComboGroupsSummary(groups) {
+    if (!comboGroupsHaveWork(groups)) return "";
+    return groups
+      .map((group) => {
+        const inner = (group.steps || []).map(formatComboStepShort).join("+");
+        return String(group.times || 1) + "×(" + inner + ")";
+      })
+      .join(" + ");
+  }
+
+  function sessionFromComboGroups(log, input) {
+    const groups = input && input.comboGroups;
+    if (!comboGroupsHaveWork(groups)) return null;
+    const parts = [];
+    groups.forEach((group, groupIndex) => {
+      const times = Math.max(1, Number(group.times) || 1);
+      const steps = group.steps || [];
+      for (let i = 0; i < times; i += 1) {
+        steps.forEach((step, stepIndex) => {
+          const isLast =
+            groupIndex === groups.length - 1 && i === times - 1 && stepIndex === steps.length - 1;
+          const restParsed = parseDurationToken(step.restRaw);
+          let rest_s = null;
+          let restProvenance = "unknown";
+          if (restParsed) {
+            rest_s = restParsed.sec;
+            restProvenance = restParsed.approximate ? "user_recalled_approx" : "specified";
+          } else if (isLast) {
+            rest_s = 0;
+            restProvenance = "last_none";
+          }
+          const distanceM = Number(step.distanceM) > 0 ? Number(step.distanceM) : null;
+          const parsed = parseDurationToken(step.durationRaw);
+          parts.push(
+            workRep({
+              distance_m: distanceM,
+              duration_s: parsed ? parsed.sec : null,
+              rest_s,
+              restProvenance,
+            })
+          );
+        });
+      }
+    });
+    if (!parts.length) return null;
+    const summary = formatComboGroupsSummary(groups);
+    return sessionShellFromLog(log, {
+      name: summary || log.planned_title || "自由组合",
+      type_hint: parts.length > 1 ? "interval" : "run",
+      prescription: summary,
+      parts,
+      recoveryType: parts.some((p) => p.restProvenance === "unknown") ? "unknown" : "specified",
+    });
+  }
+
+  function readComboGroupsFromForm() {
+    if (typeof document === "undefined") return [];
+    const node = document.getElementById("logV2ComboJson");
+    return parseComboGroups(node && node.value);
+  }
+
+  function writeComboGroupsToForm(groups) {
+    if (typeof document === "undefined") return;
+    const node = document.getElementById("logV2ComboJson");
+    if (node) node.value = JSON.stringify(groups || []);
+    const summary = document.getElementById("logComboSummary");
+    if (summary) {
+      summary.textContent = formatComboGroupsSummary(groups) || "还没有重复组。";
+    }
+  }
+
+  function comboStepHtml(step) {
+    const distanceVal = Number(step.distanceM) > 0 ? String(step.distanceM) : "";
+    const durationVal = step.durationRaw || "";
+    const restVal = step.restRaw || "";
+    return `<div class="combo-step-row" data-combo-id="${escapeText(step.id)}" data-combo-kind="step">
+      <label>距离（m）<input data-combo-field="distanceM" type="number" min="0" step="1" value="${escapeText(distanceVal)}" placeholder="如 1000" /></label>
+      <label>成绩 / 时间<input data-combo-field="durationRaw" value="${escapeText(durationVal)}" placeholder="可选，如 3:20" /></label>
+      <label>组间恢复<input data-combo-field="restRaw" value="${escapeText(restVal)}" placeholder="如 60 或 2:00" /></label>
+      <button type="button" class="ghost-button combo-mini" data-combo-act="remove">删除</button>
+    </div>`;
+  }
+
+  function comboGroupHtml(group, index) {
+    const steps = (group.steps || []).map(comboStepHtml).join("");
+    return `<div class="combo-group" data-combo-id="${escapeText(group.id)}" data-combo-kind="group">
+      <div class="combo-group-head">
+        <strong>重复组 ${escapeText(String(index + 1))}</strong>
+        <div class="combo-times">
+          <button type="button" class="ghost-button combo-mini" data-combo-act="dec-times">−</button>
+          <span>${escapeText(String(group.times || 1))} 次</span>
+          <button type="button" class="ghost-button combo-mini" data-combo-act="inc-times">+</button>
+        </div>
+        <button type="button" class="ghost-button combo-mini" data-combo-act="remove">删除整组</button>
+      </div>
+      <div class="combo-group-steps">${steps}</div>
+      <div class="combo-group-foot">
+        <button type="button" class="ghost-button combo-mini" data-combo-act="add-step">组内加一段</button>
+      </div>
+    </div>`;
+  }
+
+  function renderComboGroupsHtml(groups) {
+    const body = (groups || []).map(comboGroupHtml).join("");
+    return `<p class="combo-summary" id="logComboSummary">${escapeText(formatComboGroupsSummary(groups) || "还没有重复组。")}</p>
+      <div class="combo-list">${body || `<p class="form-note">还没有重复组。可点「填入示例」看 2×(1000+600+400)。</p>`}</div>
+      <div class="combo-toolbar">
+        <button type="button" class="ghost-button" data-combo-act="add-group">添加重复组</button>
+        <button type="button" class="ghost-button" data-combo-act="example">填入示例</button>
+      </div>`;
+  }
+
+  function findComboItem(groups, id) {
+    for (let i = 0; i < groups.length; i += 1) {
+      if (groups[i].id === id) return { list: groups, index: i, item: groups[i], group: groups[i] };
+      const steps = groups[i].steps || [];
+      for (let j = 0; j < steps.length; j += 1) {
+        if (steps[j].id === id) return { list: steps, index: j, item: steps[j], group: groups[i] };
+      }
+    }
+    return null;
+  }
+
+  function mountComboBuilder(host, onChange) {
+    if (!host) return;
+    let groups = readComboGroupsFromForm();
+
+    const redraw = () => {
+      writeComboGroupsToForm(groups);
+      host.innerHTML = renderComboGroupsHtml(groups);
+      writeComboGroupsToForm(groups);
+      if (typeof onChange === "function") onChange(groups);
+    };
+
+    host.onclick = (event) => {
+      const btn = event.target.closest("[data-combo-act]");
+      if (!btn || !host.contains(btn)) return;
+      const act = btn.getAttribute("data-combo-act");
+      const card = btn.closest("[data-combo-id]");
+      const id = card ? card.getAttribute("data-combo-id") : null;
+      if (act === "example") {
+        groups = exampleComboGroups();
+        redraw();
+        return;
+      }
+      if (act === "add-group") {
+        groups.push({
+          id: comboId(),
+          times: 2,
+          steps: [makeComboStep(400)],
+        });
+        redraw();
+        return;
+      }
+      if (!id) return;
+      const found = findComboItem(groups, id);
+      if (!found) return;
+      if (act === "remove") {
+        found.list.splice(found.index, 1);
+        redraw();
+        return;
+      }
+      if (act === "inc-times") {
+        found.group.times = Math.min(20, (Number(found.group.times) || 1) + 1);
+        redraw();
+        return;
+      }
+      if (act === "dec-times") {
+        found.group.times = Math.max(1, (Number(found.group.times) || 1) - 1);
+        redraw();
+        return;
+      }
+      if (act === "add-step") {
+        found.group.steps = found.group.steps || [];
+        found.group.steps.push(makeComboStep(null));
+        redraw();
+      }
+    };
+
+    const saveField = (event) => {
+      const field = event.target.getAttribute("data-combo-field");
+      if (!field) return;
+      const card = event.target.closest("[data-combo-id]");
+      if (!card) return;
+      const found = findComboItem(groups, card.getAttribute("data-combo-id"));
+      if (!found) return;
+      const raw = String(event.target.value || "").trim();
+      if (field === "distanceM") found.item.distanceM = Number(raw) > 0 ? Number(raw) : null;
+      if (field === "durationRaw") found.item.durationRaw = raw;
+      if (field === "restRaw") found.item.restRaw = raw;
+      writeComboGroupsToForm(groups);
+      if (typeof onChange === "function") onChange(groups);
+    };
+
+    host.oninput = saveField;
+    host.onchange = saveField;
+    redraw();
+  }
+
   function collectLoadV2InputFromForm() {
     if (typeof document === "undefined") return null;
     const el = (id) => document.getElementById(id);
-    if (!el("logV2Reps") && !el("logV2RepDistance") && !el("logV2RepTime")) return null;
+    if (!el("logV2Reps") && !el("logWarmupSkip") && !el("logCooldownSkip")) return null;
     const repetitions = Number(el("logV2Reps") && el("logV2Reps").value) || null;
     const repDistanceM = Number(el("logV2RepDistance") && el("logV2RepDistance").value) || null;
     const repTimeRaw = ((el("logV2RepTime") && el("logV2RepTime").value) || "").trim();
@@ -186,6 +539,10 @@
     const provenance = ((el("logV2Provenance") && el("logV2Provenance").value) || "").trim() || null;
     const intervalStructure = ((el("logV2IntervalStructure") && el("logV2IntervalStructure").value) || "").trim() || null;
     const heatHot = Boolean(el("logV2HeatHot") && el("logV2HeatHot").checked);
+    const warmup = collectAuxBout("logWarmup");
+    const cooldown = collectAuxBout("logCooldown");
+    const comboGroups = readComboGroupsFromForm();
+    const comboEmpty = !comboGroupsHaveWork(comboGroups);
     if (
       !repetitions &&
       !repDistanceM &&
@@ -194,11 +551,17 @@
       !recoveryType &&
       !intervalStructure &&
       !heatHot &&
+      !warmup &&
+      !cooldown &&
+      comboEmpty &&
       (!provenance || provenance === "exact")
     ) {
       return null;
     }
     return {
+      warmup,
+      cooldown,
+      comboGroups: comboEmpty ? null : comboGroups,
       repetitions,
       repDistanceM,
       repTimeRaw: repTimeRaw || null,
@@ -216,6 +579,9 @@
       const n = document.getElementById(id);
       if (n) n.value = v == null || v === "" ? "" : String(v);
     };
+    fillAuxBout("logWarmup", input.warmup);
+    fillAuxBout("logCooldown", input.cooldown);
+    set("logV2ComboJson", input.comboGroups ? JSON.stringify(input.comboGroups) : "");
     set("logV2Reps", input.repetitions);
     set("logV2RepDistance", input.repDistanceM);
     set("logV2RepTime", input.repTimeRaw);
@@ -229,6 +595,7 @@
     if (details && (input.repetitions || input.repDistanceM || input.repTimeRaw || input.recoveryRaw || input.intervalStructure)) {
       details.open = true;
     }
+    applyAuxSkipVisibility();
   }
 
   function restOnParts(n, recovery, recoveryType) {
@@ -266,6 +633,8 @@
   }
 
   function sessionFromStructuredInput(log, input) {
+    const comboSession = sessionFromComboGroups(log, input);
+    if (comboSession) return comboSession;
     const n = Number(input.repetitions) > 0 ? Math.round(Number(input.repetitions)) : 0;
     const dist = Number(input.repDistanceM) > 0 ? Number(input.repDistanceM) : null;
     const parsedTime = parseRepTimeField(input.repTimeRaw);
@@ -435,11 +804,16 @@
   function logRowToV2Session(log) {
     if (!log) return null;
     const input = log.load_v2_input;
+    let session = null;
     if (input && typeof input === "object") {
-      const structured = sessionFromStructuredInput(log, input);
-      if (structured) return structured;
+      session = sessionFromStructuredInput(log, input);
     }
-    return sessionFromLegacyLog(log);
+    if (!session) session = sessionFromLegacyLog(log);
+    if (!session && input && (input.warmup || input.cooldown)) {
+      session = sessionShellFromLog(log, { recoveryType: "none" });
+    }
+    if (session && input) session = attachAuxParts(session, input);
+    return session;
   }
 
   function confidenceBand(x) {
@@ -769,6 +1143,10 @@
     parseRepTimeField,
     parseRecoveryField,
     confidenceBand,
+    applyAuxSkipVisibility,
+    mountComboBuilder,
+    formatComboGroupsSummary,
+    exampleComboGroups,
   };
 
   if (typeof module === "object" && module.exports) {

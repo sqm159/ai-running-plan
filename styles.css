@@ -2729,3 +2729,97 @@ details summary {
 .log-v2-heat input {
   margin-top: 3px;
 }
+
+.log-block {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-elevated);
+}
+.log-block-main {
+  background: var(--bg-card);
+}
+.log-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.log-block-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+.log-skip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-secondary);
+  font-weight: 600;
+}
+.log-skip input {
+  margin: 0;
+}
+
+.log-combo-block {
+  margin-top: 12px;
+}
+.combo-summary {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--primary);
+}
+.combo-group {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: var(--bg-card);
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.combo-group-head,
+.combo-group-foot,
+.combo-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.combo-times {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.combo-step-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.combo-mini {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.combo-between {
+  margin-left: auto;
+  min-width: min(220px, 100%);
+}
+.combo-list {
+  margin-bottom: 8px;
+}
+
+@media (max-width: 640px) {
+  .combo-step-row {
+    grid-template-columns: 1fr;
+  }
+  .combo-times,
+  .combo-between {
+    margin-left: 0;
+  }
+}
