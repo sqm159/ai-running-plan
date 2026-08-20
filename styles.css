@@ -1499,13 +1499,55 @@ textarea {
 /* ---- 训练日历 ---- */
 .cal-top-actions {
   display: flex;
-  justify-content: flex-end;
-  margin: 0 0 10px;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+.cal-month-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.month-cal {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--bg-card);
+  padding: 16px;
+}
+.month-cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.month-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+.month-day-num {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.month-day.is-outside {
+  opacity: 0.42;
+}
+.cal-day-title-empty {
+  min-height: 1em;
 }
 
 .calendar-page .cal-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin: 16px 0 24px;
 }
@@ -2016,6 +2058,18 @@ textarea {
     gap: 6px;
   }
 
+  .month-cal-grid,
+  .month-cal-weekdays {
+    gap: 4px;
+  }
+  .month-day {
+    min-height: 72px;
+    padding: 6px 4px;
+  }
+  .month-day .cal-wd {
+    display: none;
+  }
+
   .cal-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2490,4 +2544,188 @@ details summary {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
+}
+
+/* ---- Training Load V2 · Beta ---- */
+.log-v2-structure {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px;
+  background: var(--bg-elevated);
+}
+.log-v2-structure summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+.log-v2-structure .log-grid {
+  margin-top: 12px;
+}
+
+.load-v2-layout {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+@media (min-width: 960px) {
+  .load-v2-layout {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    align-items: start;
+  }
+}
+.load-v2-card {
+  margin-top: 0;
+}
+.load-v2-kicker {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--primary);
+  font-weight: 700;
+}
+.load-v2-card h3,
+.load-v2-coach h3 {
+  margin: 0 0 14px;
+}
+.load-v2-grid {
+  display: grid;
+  gap: 16px;
+}
+.load-v2-metric-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.load-v2-dim-zh {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.load-v2-dim-en {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.load-v2-values {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.load-v2-level {
+  font-size: 16px;
+  font-weight: 800;
+}
+.load-v2-level-low { color: var(--muted); }
+.load-v2-level-medium { color: var(--primary); }
+.load-v2-level-high { color: var(--orange); }
+.load-v2-level-veryHigh { color: #ef5350; }
+.load-v2-score {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  opacity: 0.7;
+}
+.load-v2-bar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  height: 10px;
+}
+.load-v2-seg {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+}
+.load-v2-seg.is-on {
+  background: var(--orange);
+  border-color: var(--orange);
+}
+.load-v2-low-conf {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ef9a9a;
+}
+.load-v2-meta {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.load-v2-meta p {
+  margin: 0 0 6px;
+}
+.load-v2-meta-label {
+  display: inline-block;
+  min-width: 12em;
+  color: var(--ink-secondary);
+}
+.load-v2-kind {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.load-v2-help {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+}
+.load-v2-help summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.load-v2-help ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+.load-v2-help li {
+  margin-bottom: 8px;
+  color: var(--ink-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.load-v2-coach-block {
+  margin-top: 16px;
+}
+.load-v2-coach-block:first-of-type {
+  margin-top: 0;
+}
+.load-v2-coach-block h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+}
+.load-v2-coach-block p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink-secondary);
+}
+.load-v2-coach-block p:last-child {
+  margin-bottom: 0;
+}
+.load-v2-disclaimer {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.log-v2-heat {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+.log-v2-heat input {
+  margin-top: 3px;
 }

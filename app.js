@@ -444,6 +444,78 @@ function formatTime(seconds) {
   return min > 0 ? `${min}:${String(sec).padStart(2, "0")}` : `${sec}s`;
 }
 
+function formatTimeInput(seconds) {
+  const n = Number(seconds);
+  if (!(n > 0)) return "";
+  const rounded = Math.round(n);
+  const min = Math.floor(rounded / 60);
+  const sec = rounded % 60;
+  return min > 0 ? `${min}:${String(sec).padStart(2, "0")}` : String(rounded);
+}
+
+const ANALYSIS_TIME_FIELDS = {
+  "400": "time400",
+  "600": "time600",
+  "800": "time800",
+  "1500": "time1500",
+  "3000": "time3000",
+  "5000": "time5000",
+  "10000": "time10000",
+};
+
+function hydrateAnalysisInput(input) {
+  if (!input || typeof input !== "object") return null;
+  const event = String(input.event || "");
+  return {
+    ...input,
+    event,
+    model: EVENT_MODELS[event] || input.model,
+  };
+}
+
+function latestPerformanceByEvent(records) {
+  const map = {};
+  (records || []).forEach((p) => {
+    const key = String(p.event);
+    if (!map[key]) map[key] = p;
+  });
+  return map;
+}
+
+function fillAnalysisFormFromInput(input) {
+  if (!input) return;
+  if (input.event) setFieldValue("event", String(input.event));
+  if (input.weeks) setFieldValue("weeks", String(input.weeks));
+  if (input.goalTime) {
+    setFieldValue("goalTime", typeof input.goalTime === "number"
+      ? formatTimeInput(input.goalTime)
+      : String(input.goalTime));
+  }
+  if (input.daysPerWeek) setFieldValue("daysPerWeek", String(input.daysPerWeek));
+  if (input.age) setFieldValue("age", String(input.age));
+  if (input.strength != null) setFieldValue("strength", String(input.strength));
+  if (input.longRun) setFieldValue("longRun", String(input.longRun));
+  if (input.recovery) setFieldValue("recovery", String(input.recovery));
+  if (input.injuryRisk) setFieldValue("injuryRisk", String(input.injuryRisk));
+  const extra = input.additionalNeeds || input.adjustment?.text || "";
+  if (extra) setFieldValue("additionalNeeds", extra);
+  const times = input.times || {};
+  Object.entries(ANALYSIS_TIME_FIELDS).forEach(([ev, field]) => {
+    const sec = times[ev] ?? times[Number(ev)];
+    if (sec > 0) setFieldValue(field, formatTimeInput(sec));
+  });
+}
+
+function applyPerformanceTimesToForm(records) {
+  const latest = latestPerformanceByEvent(records);
+  Object.entries(ANALYSIS_TIME_FIELDS).forEach(([ev, field]) => {
+    const rec = latest[ev];
+    if (!rec) return;
+    const text = (rec.time_text || "").trim() || formatTimeInput(rec.time_seconds);
+    if (text) setFieldValue(field, text);
+  });
+}
+
 function escapeHtml(text) {
   return String(text == null ? "" : text)
     .replace(/&/g, "&amp;")
@@ -1973,7 +2045,8 @@ async function listPerformances(userId) {
     .from("performance_records")
     .select("*")
     .eq("user_id", userId)
-    .order("record_date", { ascending: false, nullsFirst: false });
+    .order("record_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
 }
@@ -2009,6 +2082,35 @@ async function saveAnalysis(userId, input, analysis, phases, weeks) {
     label,
   });
   if (error) throw error;
+}
+
+async function updateAnalysisInputJson(snapshotId, inputJson) {
+  const client = initSupabase();
+  const { error } = await client
+    .from("analysis_snapshots")
+    .update({ input_json: inputJson })
+    .eq("id", snapshotId);
+  if (error) throw error;
+}
+
+async function syncPerformanceTimesToLatestAnalysis(userId, event) {
+  if (!userId || event == null || event === "") return;
+  const snap = await getLatestAnalysis(userId);
+  if (!snap) return;
+  const perfs = await listPerformances(userId);
+  const latest = latestPerformanceByEvent(perfs);
+  const ev = String(event);
+  const rec = latest[ev];
+  const input = { ...(snap.input_json || {}) };
+  const times = { ...(input.times || {}) };
+  if (rec && Number(rec.time_seconds) > 0) {
+    times[ev] = Number(rec.time_seconds);
+  } else {
+    delete times[ev];
+    delete times[Number(ev)];
+  }
+  input.times = times;
+  await updateAnalysisInputJson(snap.id, input);
 }
 
 async function getLatestAnalysis(userId) {
@@ -2124,6 +2226,41 @@ async function listTrainingLogs(userId, fromDate, toDate) {
   return data || [];
 }
 
+const LOAD_V2_INPUT_COLUMN_MISSING =
+  /load_v2_input|schema cache|Could not find the ['"]load_v2_input['"] column/i;
+
+function loadV2LocalKey(userId, date) {
+  return `nextlap:load_v2_input:${userId}:${date}`;
+}
+
+function writeLoadV2Local(userId, date, input) {
+  try {
+    const key = loadV2LocalKey(userId, date);
+    if (!input) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(input));
+  } catch (_) {
+    /* ignore quota / private mode */
+  }
+}
+
+function readLoadV2Local(userId, date) {
+  try {
+    const raw = localStorage.getItem(loadV2LocalKey(userId, date));
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function attachLoadV2Input(log, userId, date) {
+  if (!log) return log;
+  if (log.load_v2_input == null) {
+    const local = readLoadV2Local(userId, date || log.log_date);
+    if (local) log.load_v2_input = local;
+  }
+  return log;
+}
+
 async function getTrainingLog(userId, date) {
   const client = initSupabase();
   const { data, error } = await client
@@ -2133,25 +2270,36 @@ async function getTrainingLog(userId, date) {
     .eq("log_date", date)
     .maybeSingle();
   if (error) throw error;
-  return data;
+  return attachLoadV2Input(data, userId, date);
 }
 
 async function upsertTrainingLog(userId, date, payload) {
   const client = initSupabase();
-  const { data, error } = await client
+  const row = {
+    user_id: userId,
+    log_date: date,
+    ...payload,
+  };
+  let { data, error } = await client
     .from("training_logs")
-    .upsert(
-      {
-        user_id: userId,
-        log_date: date,
-        ...payload,
-      },
-      { onConflict: ["user_id", "log_date"] }
-    )
+    .upsert(row, { onConflict: ["user_id", "log_date"] })
     .select()
     .single();
+  if (error && row.load_v2_input !== undefined && LOAD_V2_INPUT_COLUMN_MISSING.test(error.message || "")) {
+    const fallback = { ...row };
+    delete fallback.load_v2_input;
+    const retry = await client
+      .from("training_logs")
+      .upsert(fallback, { onConflict: ["user_id", "log_date"] })
+      .select()
+      .single();
+    data = retry.data;
+    error = retry.error;
+    if (!error && data) data.load_v2_input = payload.load_v2_input || null;
+  }
   if (error) throw error;
-  return data;
+  writeLoadV2Local(userId, date, payload.load_v2_input || null);
+  return attachLoadV2Input(data, userId, date);
 }
 
 async function deleteTrainingLog(userId, date) {
@@ -2162,6 +2310,7 @@ async function deleteTrainingLog(userId, date) {
     .eq("user_id", userId)
     .eq("log_date", date);
   if (error) throw error;
+  writeLoadV2Local(userId, date, null);
 }
 
 // 检查某外部活动是否已导入（去重）
@@ -2885,23 +3034,9 @@ function detectAndParseFile(filename, payload) {
   throw new Error(`不支持的文件格式：${filename}。支持 .fit / .tcx / .gpx / .csv`);
 }
 
-/* ---- 导入流程：解析 → 补齐训练负荷 → 去重 → 批量写入 ---- */
+/* ---- 导入流程：解析 → 去重 → 批量写入 ---- */
 function finalizeActivityImport(activity, age) {
-  // 计算训练负荷
-  const load = calcTrainingLoad(
-    activity.duration_min,
-    activity.rpe,
-    activity.avg_hr,
-    age
-  );
-  const intensityFactor = activity.duration_min && load
-    ? Math.round((load / activity.duration_min) * 100) / 100
-    : rpeToIntensityFactor(activity.rpe);
-  return {
-    ...activity,
-    intensity_factor: intensityFactor || null,
-    training_load: load || null,
-  };
+  return { ...activity };
 }
 
 /* ---- 训练负荷计算 ---- */
@@ -3055,6 +3190,10 @@ function currentRoute() {
 
 // 解析带参数的路由（如 /day/2026-08-11 → { name: "/day", param: "2026-08-11" }）
 function matchRoute(path) {
+  if (path === "/calendar" || path.startsWith("/calendar/")) {
+    const rest = path === "/calendar" ? "" : path.slice("/calendar/".length);
+    return { renderer: renderCalendarPage, param: rest || null };
+  }
   // 精确匹配
   if (ROUTES[path]) return { renderer: ROUTES[path], param: null };
   // /day/:date 参数化路由
@@ -3079,7 +3218,9 @@ function navigate(path) {
 
 function updateNavActive(path) {
   document.querySelectorAll("#navLinks a").forEach((a) => {
-    a.classList.toggle("active", a.getAttribute("data-route") === path);
+    const route = a.getAttribute("data-route");
+    const active = path === route || (route && route !== "/" && path.startsWith(route + "/"));
+    a.classList.toggle("active", active);
   });
 }
 
@@ -3205,7 +3346,7 @@ async function renderDashboardPage(app, user) {
       <div class="quick-actions">
         <a class="primary-button" href="#/profile">完善运动档案</a>
         <a class="secondary-button" href="#/performance">记录我的成绩</a>
-        <a class="secondary-button" href="#/analysis">生成能力分析</a>
+        <a class="secondary-button" href="#/analysis">${snap ? "查看能力分析" : "生成能力分析"}</a>
         <a class="secondary-button" href="#/plan">查看训练计划</a>
         <button id="pwa-install-btn" class="secondary-button"
           style="display:${isAppInstalled ? 'none' : 'inline-flex'}; align-items:center; gap:8px"
@@ -3786,7 +3927,7 @@ async function renderPerformanceList(app, user) {
           <td class="col-time">${escapeHtml(r.time_text || (r.time_seconds ? formatTime(r.time_seconds) : "—"))}</td>
           <td class="col-date">${escapeHtml(r.record_date || "—")}</td>
           <td class="col-date">${escapeHtml(r.note || "")}</td>
-          <td class="col-action"><button class="del-btn" data-id="${escapeHtml(r.id)}">删除</button></td>
+          <td class="col-action"><button class="del-btn" data-id="${escapeHtml(r.id)}" data-event="${escapeHtml(r.event)}">删除</button></td>
         </tr>
       `).join("")
     : `<tr class="empty-row"><td colspan="5">还没有成绩记录。在下方添加你的第一条成绩。</td></tr>`;
@@ -3824,7 +3965,7 @@ async function renderPerformanceList(app, user) {
           </div>
           <label class="full-field" style="margin-top:14px">备注（选填）<input id="pf_note" type="text" placeholder="如 训练测试 / 正式比赛"/></label>
           <button class="primary-button full" type="submit" id="perfSubmit">添加成绩</button>
-          <p class="form-note">成绩会保存到你的账户。能力分析页会自动读取最新成绩填充分析表单。</p>
+          <p class="form-note">成绩会保存到你的账户，并同步到能力分析对应距离和训练负荷锚点。</p>
         </form>
       </div>
     </section>
@@ -3850,6 +3991,9 @@ async function renderPerformanceList(app, user) {
     btn.textContent = "添加中…";
     try {
       await addPerformance(user.id, record);
+      try {
+        await syncPerformanceTimesToLatestAnalysis(user.id, record.event);
+      } catch (_) { /* 尚无分析快照时忽略 */ }
       showToast("成绩已添加", "success");
       await renderPerformanceList(app, user);
     } catch (err) {
@@ -3863,8 +4007,12 @@ async function renderPerformanceList(app, user) {
   document.querySelectorAll(".del-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-id");
+      const event = btn.getAttribute("data-event");
       try {
         await deletePerformance(user.id, id);
+        try {
+          await syncPerformanceTimesToLatestAnalysis(user.id, event);
+        } catch (_) { /* 尚无分析快照时忽略 */ }
         showToast("已删除", "success");
         await renderPerformanceList(app, user);
       } catch (err) {
@@ -3937,8 +4085,8 @@ async function renderAnalysisPage(app, user) {
           <label class="full-field">进一步需求 / 近期反馈
             <textarea id="additionalNeeds" rows="5" placeholder="例如：最近小腿有点紧，想降低强度；或者希望加强速度耐力和最后 300m 冲刺；也可以写时间比较紧、想少做力量、想增加有氧等。"></textarea>
           </label>
-          <button class="primary-button full" type="submit">生成能力分析</button>
-          <p class="form-note">时间支持秒数或「分:秒」格式。${user ? "已登录，分析结果会自动保存到你的账户，并可在训练计划页查看。" : "登录后可保存分析结果与训练计划。"}</p>
+          <button class="primary-button full" type="submit" id="analysisSubmit">生成能力分析</button>
+          <p class="form-note">时间支持秒数或「分:秒」格式。我的成绩页的最新记录会填入对应距离，并作为训练负荷的能力锚点。${user ? "已登录，分析结果会保存；再次打开本页会停留在上次分析。" : "登录后可保存分析结果与训练计划。"}</p>
         </form>
 
         <aside class="output-card" id="summary">
@@ -3954,27 +4102,41 @@ async function renderAnalysisPage(app, user) {
   document.getElementById("planForm").addEventListener("submit", handleAnalysisSubmit);
 
   if (user) {
-    prefillAnalysisForm(user);
+    restoreAnalysisPage(user);
   }
 }
 
-async function prefillAnalysisForm(user) {
+async function restoreAnalysisPage(user) {
   try {
-    const [profile, perfs] = await Promise.all([getProfile(user.id), listPerformances(user.id)]);
-    if (profile) {
+    const [profile, perfs, snap] = await Promise.all([
+      getProfile(user.id),
+      listPerformances(user.id),
+      getLatestAnalysis(user.id),
+    ]);
+    if (snap?.input_json) {
+      fillAnalysisFormFromInput(hydrateAnalysisInput(snap.input_json));
+    } else if (profile) {
       const eventVal = profile.goal_event || profile.main_event;
       if (eventVal) setFieldValue("event", String(eventVal));
       if (profile.goal_time) setFieldValue("goalTime", profile.goal_time);
       if (profile.age) setFieldValue("age", String(profile.age));
-      if (profile.sessions_per_week) setFieldValue("daysPerWeek", String(Math.min(6, Math.max(4, profile.sessions_per_week))));
+      if (profile.sessions_per_week) {
+        setFieldValue("daysPerWeek", String(Math.min(6, Math.max(4, profile.sessions_per_week))));
+      }
     }
-    const latestByEvent = {};
-    perfs.forEach((p) => { if (!latestByEvent[p.event]) latestByEvent[p.event] = p; });
-    const eventToField = { "400": "time400", "600": "time600", "800": "time800", "1500": "time1500", "3000": "time3000", "5000": "time5000", "10000": "time10000" };
-    Object.entries(latestByEvent).forEach(([ev, p]) => {
-      const field = eventToField[String(ev)];
-      if (field && p.time_text) setFieldValue(field, p.time_text);
-    });
+    applyPerformanceTimesToForm(perfs);
+    if (snap?.analysis_json) {
+      const submitBtn = document.getElementById("analysisSubmit");
+      if (submitBtn) submitBtn.textContent = "更新能力分析";
+      const hydrated = hydrateAnalysisInput(snap.input_json);
+      if (hydrated?.model) {
+        try {
+          renderSummary(hydrated, snap.analysis_json);
+        } catch (err) {
+          console.warn("restore analysis summary failed", err);
+        }
+      }
+    }
   } catch (e) {
     /* 静默忽略预填失败 */
   }
@@ -4001,7 +4163,7 @@ async function handleAnalysisSubmit(event) {
         showToast("分析已生成，但保存失败：" + (err.message || err), "error");
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = "生成能力分析";
+        submitBtn.textContent = "更新能力分析";
       }
     } else {
       showToast("分析已生成（登录后可保存）", "success");
@@ -4057,7 +4219,7 @@ async function renderPlanPage(app, user) {
 
       <div class="plan-action-bar">
         ${isActiveThis
-          ? `<div class="plan-status plan-status-active">✓ 已启用 · 开始日期 ${escapeHtml(activeAssignment.start_date)} · 共 ${activeAssignment.total_weeks} 周 · <a href="#/calendar">查看训练日历 →</a></div>
+          ? `<div class="plan-status plan-status-active">✓ 已启用 · 开始日期 ${escapeHtml(activeAssignment.start_date)} · 共 ${activeAssignment.total_weeks} 周 · <a href="#/calendar/plan">查看课表日历 →</a></div>
              <button class="ghost-button danger-btn" id="revokePlanBtn">撤回启用</button>`
           : `<button class="primary-button" id="enablePlanBtn">启用此课表</button>
              ${activeAssignment ? `<span class="plan-status plan-status-other">当前已启用其他课表，启用新课表会覆盖原课表</span>` : ""}`
@@ -4105,7 +4267,7 @@ function openEnablePlanModal(snapshot, totalWeeks) {
         <button class="modal-close" aria-label="关闭">×</button>
       </div>
       <div class="modal-body">
-        <p class="modal-desc">选择这份课表从哪一天开始执行。系统会按 12 周生成训练日历，每天都可以记录完成情况并计算训练负荷。</p>
+        <p class="modal-desc">选择这份课表从哪一天开始执行。系统会按 12 周生成训练日历，每天都可以记录完成情况。</p>
         <label>
           课表开始日期
           <input type="date" id="planStartDate" value="${formatDateISO(nextMonday)}" min="${today}" />
@@ -4138,7 +4300,7 @@ function openEnablePlanModal(snapshot, totalWeeks) {
       await createAssignment(currentUser.id, snapshot.id, startDate, totalWeeks);
       showToast("课表已启用，可以开始训练了！", "success");
       close();
-      navigate("/calendar");
+      navigate("/calendar/plan");
     } catch (err) {
       showToast("启用失败：" + (err.message || err), "error");
       btn.disabled = false;
@@ -4207,7 +4369,7 @@ function openDeleteLogModal(dateStr, onSuccess) {
       <div class="modal-body">
         <div class="adjustment-box" style="border-color:rgba(196,82,70,0.25);background:linear-gradient(180deg,#fff5f3,#fdecea);">
           <strong>确认要删除 ${escapeHtml(dateStr)} 的训练日志吗？</strong>
-          <p>删除后该日的训练记录、训练负荷数据将一并清除，无法恢复。</p>
+          <p>删除后该日的训练记录将一并清除，无法恢复。</p>
           <p>如果只是想修改内容，建议直接修改后点「更新日志」而不是删除重建。</p>
         </div>
       </div>
@@ -4243,10 +4405,69 @@ function openDeleteLogModal(dateStr, onSuccess) {
 
 /* ===================== 11. 训练日历 / 每日日志 / 训练负荷 ===================== */
 
-/* ---- /calendar 训练日历总览页 ---- */
-async function renderCalendarPage(app, user) {
+function parseCalendarView(param) {
+  if (param === "plan") return { view: "plan" };
+  if (param && /^\d{4}-\d{2}$/.test(param)) {
+    const [year, month] = param.split("-").map(Number);
+    if (year >= 2000 && month >= 1 && month <= 12) return { view: "month", year, month };
+  }
+  const now = new Date();
+  return { view: "month", year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+function monthHash(year, month) {
+  return `/calendar/${year}-${String(month).padStart(2, "0")}`;
+}
+
+function shiftMonth(year, month, delta) {
+  const d = new Date(year, month - 1 + delta, 1);
+  return { year: d.getFullYear(), month: d.getMonth() + 1 };
+}
+
+function buildMonthCells(year, month) {
+  const first = new Date(year, month - 1, 1);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  const start = addDays(first, -mondayOffset);
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const date = addDays(start, i);
+    cells.push({
+      date,
+      dateStr: formatDateISO(date),
+      inMonth: date.getMonth() === month - 1,
+    });
+  }
+  return cells;
+}
+
+function calendarDayState(dateStr, log, todayStr, planned) {
+  let statusClass = "cal-day-future";
+  let statusLabel = "";
+  if (dateStr === todayStr) {
+    statusClass = "cal-day-today";
+    statusLabel = "今天";
+  } else if (dateStr < todayStr) {
+    statusClass = "cal-day-past";
+    if (log) {
+      if (log.status === "completed") { statusClass = "cal-day-done"; statusLabel = "已完成"; }
+      else if (log.status === "partial") { statusClass = "cal-day-partial"; statusLabel = "部分完成"; }
+      else if (log.status === "skipped") { statusClass = "cal-day-skip"; statusLabel = "跳过"; }
+      else { statusClass = "cal-day-missed"; statusLabel = "未记录"; }
+    } else if (planned && !planned.isRest) {
+      statusClass = "cal-day-missed";
+      statusLabel = "未记录";
+    }
+  } else {
+    statusLabel = "未开始";
+  }
+  return { statusClass, statusLabel };
+}
+
+/* ---- /calendar 训练日历：默认月历，课表日历单独切换 ---- */
+async function renderCalendarPage(app, user, param) {
   app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
 
+  const parsed = parseCalendarView(param);
   let assignment = null;
   let snapshot = null;
   let logs = [];
@@ -4254,24 +4475,106 @@ async function renderCalendarPage(app, user) {
     assignment = await getActiveAssignment(user.id);
     if (assignment) {
       snapshot = await getAnalysisById(assignment.snapshot_id);
-      const startDate = assignment.start_date;
-      const endDate = formatDateISO(addDays(parseDateISO(startDate), assignment.total_weeks * 7 - 1));
-      logs = await listTrainingLogs(user.id, startDate, endDate);
+    }
+    if (parsed.view === "plan") {
+      if (assignment) {
+        const startDate = assignment.start_date;
+        const endDate = formatDateISO(addDays(parseDateISO(startDate), assignment.total_weeks * 7 - 1));
+        logs = await listTrainingLogs(user.id, startDate, endDate);
+      }
+    } else {
+      const cells = buildMonthCells(parsed.year, parsed.month);
+      logs = await listTrainingLogs(user.id, cells[0].dateStr, cells[cells.length - 1].dateStr);
     }
   } catch (e) {
     app.innerHTML = `<div class="guard"><h2>加载失败</h2><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
   }
 
+  if (parsed.view === "plan") {
+    renderPlanCalendarView(app, assignment, snapshot, logs);
+    return;
+  }
+  renderMonthCalendarView(app, parsed.year, parsed.month, assignment, snapshot, logs);
+}
+
+function renderMonthCalendarView(app, year, month, assignment, snapshot, logs) {
+  const logMap = {};
+  (logs || []).forEach((l) => { logMap[l.log_date] = l; });
+  const todayStr = formatDateISO(new Date());
+  const cells = buildMonthCells(year, month);
+  const prev = shiftMonth(year, month, -1);
+  const next = shiftMonth(year, month, 1);
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
+
+  const grid = cells.map((cell) => {
+    const planned = getPlannedDayForDate(assignment, snapshot, cell.dateStr);
+    const log = logMap[cell.dateStr];
+    const { statusClass, statusLabel } = calendarDayState(cell.dateStr, log, todayStr, planned);
+    const isToday = cell.dateStr === todayStr;
+    const planText = planned?.isRest
+      ? "休息"
+      : (planned?.title ? planned.title.split(" ")[0] : "");
+    const logText = !planText && log && log.status !== "pending"
+      ? (log.planned_title && log.planned_title !== "暂无课程" ? String(log.planned_title).split(" ")[0] : "已记录")
+      : "";
+    const titleText = planText || logText;
+    const isAdjusted = Boolean(planned && !planned.isRest && planned.__adjusted);
+    return `
+      <a class="cal-day month-day ${statusClass}${isToday ? " cal-day-today" : ""}${isAdjusted ? " cal-day-adjusted" : ""}${cell.inMonth ? "" : " is-outside"}" href="#/day/${cell.dateStr}">
+        <div class="cal-day-head">
+          <span class="month-day-num">${cell.date.getDate()}</span>
+          ${isToday ? `<span class="cal-wd">今天</span>` : `<span class="cal-wd">${weekdayName(cell.date)}</span>`}
+        </div>
+        ${titleText ? `<div class="cal-day-title">${escapeHtml(titleText)}${isAdjusted ? ` <span style="color:#B9CC52;font-size:10px;">🔧</span>` : ""}</div>` : `<div class="cal-day-title cal-day-title-empty"></div>`}
+        <div class="cal-day-status">${statusLabel && statusLabel !== "未开始" ? escapeHtml(statusLabel) : ""}</div>
+        ${log?.duration_min ? `<div class="cal-day-load">${escapeHtml(String(log.duration_min))} 分钟</div>` : ""}
+      </a>
+    `;
+  }).join("");
+
+  app.innerHTML = `
+    <section class="page calendar-page">
+      <div class="page-head">
+        <p class="eyebrow">训练日历</p>
+        <h2>${year}年${month}月</h2>
+        <p class="form-note">按天查看和记录训练。课表外的日子也可以自己练、自己记。</p>
+      </div>
+
+      <div class="cal-top-actions">
+        <div class="cal-month-nav">
+          <a class="ghost-button" href="#${monthHash(prev.year, prev.month)}">← 上个月</a>
+          ${isCurrentMonth ? "" : `<a class="ghost-button" href="#/calendar">回到本月</a>`}
+          <a class="ghost-button" href="#${monthHash(next.year, next.month)}">下个月 →</a>
+        </div>
+        <a class="primary-button" href="#/calendar/plan">查看课表日历</a>
+      </div>
+
+      <div class="month-cal">
+        <div class="month-cal-weekdays">
+          <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+        </div>
+        <div class="month-cal-grid">${grid}</div>
+      </div>
+    </section>
+  `;
+}
+
+function renderPlanCalendarView(app, assignment, snapshot, logs) {
   if (!assignment || !snapshot) {
     app.innerHTML = `
-      <section class="page">
+      <section class="page calendar-page">
         <div class="page-head">
           <p class="eyebrow">训练日历</p>
-          <h2>还没有启用训练课表</h2>
+          <h2>课表日历</h2>
+        </div>
+        <div class="cal-top-actions">
+          <a class="ghost-button" href="#/calendar">返回日历</a>
         </div>
         <div class="guard">
-          <p>先生成一次能力分析，然后在「训练计划」页面点「启用此课表」按钮，选择开始日期后即可生成 12 周训练日历。</p>
+          <h3>暂无课程</h3>
+          <p>还没有启用课表。自己的训练可以先在日历里按天记录；启用课表后，这里会显示 12 周安排。</p>
           <a class="primary-button" href="#/plan">去训练计划</a>
         </div>
       </section>`;
@@ -4280,14 +4583,10 @@ async function renderCalendarPage(app, user) {
 
   const weeks = snapshot.plan_json || [];
   const startDate = parseDateISO(assignment.start_date);
-
-  // 把日志按日期索引
   const logMap = {};
-  logs.forEach((l) => { logMap[l.log_date] = l; });
-
+  (logs || []).forEach((l) => { logMap[l.log_date] = l; });
   const todayStr = formatDateISO(new Date());
 
-  // 按周分组渲染
   const weekBlocks = [];
   for (let w = 0; w < assignment.total_weeks; w++) {
     const weekStart = addDays(startDate, w * 7);
@@ -4305,7 +4604,6 @@ async function renderCalendarPage(app, user) {
       const planned = getPlannedDayForDate(assignment, snapshot, dateStr);
       const log = logMap[dateStr];
       const isToday = dateStr === todayStr;
-      const isFuture = dateStr > todayStr;
       const isPast = dateStr < todayStr;
 
       let statusClass = "cal-day-future";
@@ -4322,7 +4620,6 @@ async function renderCalendarPage(app, user) {
         }
       }
 
-      const dayTitle = planned?.isRest ? "休息日" : (planned?.title || "—");
       const dayShort = planned?.isRest ? "休息" : (planned?.title ? planned.title.split(" ")[0] : "—");
       const isAdjusted = !planned?.isRest && planned?.__adjusted;
       const adjustedLabel = isAdjusted ? "已调整" : "";
@@ -4335,16 +4632,16 @@ async function renderCalendarPage(app, user) {
           </div>
           <div class="cal-day-title">${escapeHtml(dayShort)}${isAdjusted ? ` <span style="color:#B9CC52;font-size:10px;">🔧</span>` : ""}</div>
           <div class="cal-day-status">${adjustedLabel ? `<span style="color:#B9CC52;">${adjustedLabel}</span> · ` : ""}${statusLabel}</div>
-          ${log?.training_load ? `<div class="cal-day-load">${log.training_load} AU</div>` : ""}
+          ${log?.duration_min ? `<div class="cal-day-load">${escapeHtml(String(log.duration_min))} 分钟</div>` : ""}
         </a>
       `);
     }
 
-    const weekLoad = days
+    const weekMin = days
       .map((_, i) => {
         const date = addDays(weekStart, i);
         const l = logMap[formatDateISO(date)];
-        return l?.training_load ? Number(l.training_load) : 0;
+        return l?.duration_min ? Number(l.duration_min) : 0;
       })
       .reduce((a, b) => a + b, 0);
 
@@ -4358,7 +4655,7 @@ async function renderCalendarPage(app, user) {
           <div class="cal-week-meta">
             ${formatDateISO(weekStart)} ~ ${formatDateISO(weekEnd)}
             ${emphasisLabels ? ` · 重点：${escapeHtml(emphasisLabels)}` : ""}
-            ${weekLoad ? ` · 周负荷 ${weekLoad.toFixed(0)} AU` : ""}
+            ${weekMin ? ` · 周时长 ${weekMin.toFixed(0)} 分钟` : ""}
           </div>
         </header>
         <div class="cal-week-grid">${days.join("")}</div>
@@ -4366,7 +4663,6 @@ async function renderCalendarPage(app, user) {
     `);
   }
 
-  // 本周 + 4 周负荷汇总
   const recentLogs = logs.filter((l) => l.log_date <= todayStr);
   const recentSummary = summarizeLoad(recentLogs);
 
@@ -4374,7 +4670,7 @@ async function renderCalendarPage(app, user) {
     <section class="page calendar-page">
       <div class="page-head">
         <p class="eyebrow">训练日历</p>
-        <h2>12 周训练日历</h2>
+        <h2>课表日历</h2>
         <p class="form-note">
           ${escapeHtml(snapshot.label || "")} · 开始 ${escapeHtml(assignment.start_date)} · 共 ${assignment.total_weeks} 周
           · <a href="#/logs">查看训练历史 →</a>
@@ -4392,14 +4688,11 @@ async function renderCalendarPage(app, user) {
       ` : ""}
 
       <div class="cal-top-actions">
+        <a class="ghost-button" href="#/calendar">返回日历</a>
         <button class="ghost-button danger-btn" id="revokeCalBtn" data-id="${escapeHtml(assignment.id)}">↺ 撤回当前课表</button>
       </div>
 
       <div class="cal-summary">
-        <div class="cal-summary-item">
-          <span>累计训练负荷</span>
-          <strong>${recentSummary.totalLoad} AU</strong>
-        </div>
         <div class="cal-summary-item">
           <span>累计训练时长</span>
           <strong>${recentSummary.totalDuration} 分钟</strong>
@@ -4418,7 +4711,6 @@ async function renderCalendarPage(app, user) {
     </section>
   `;
 
-  // 绑定「撤回当前课表」按钮
   const revokeCal = document.getElementById("revokeCalBtn");
   if (revokeCal) {
     const aId = revokeCal.getAttribute("data-id");
@@ -4439,61 +4731,64 @@ async function renderDayPage(app, user, dateStr) {
 
   let assignment = null;
   let snapshot = null;
+  let planSnapshot = null;
   let log = null;
   try {
+    const latestAnalysis = await getLatestAnalysis(user.id);
     assignment = await getActiveAssignment(user.id);
+    log = await getTrainingLog(user.id, dateStr);
     if (assignment) {
-      snapshot = await getAnalysisById(assignment.snapshot_id);
-      log = await getTrainingLog(user.id, dateStr);
+      planSnapshot = await getAnalysisById(assignment.snapshot_id);
     }
+    snapshot = latestAnalysis || planSnapshot;
   } catch (e) {
     app.innerHTML = `<div class="guard"><h2>加载失败</h2><p>${escapeHtml(e.message || String(e))}</p></div>`;
     return;
   }
 
-  if (!assignment || !snapshot) {
-    app.innerHTML = `
-      <section class="page">
-        <div class="page-head"><p class="eyebrow">每日训练</p><h2>尚未启用课表</h2></div>
-        <div class="guard">
-          <p>请先到「训练计划」页面启用课表，再来查看每日训练安排。</p>
-          <a class="primary-button" href="#/plan">去训练计划</a>
-        </div>
-      </section>`;
-    return;
-  }
-
-  const planned = getPlannedDayForDate(assignment, snapshot, dateStr);
+  const planned = getPlannedDayForDate(assignment, planSnapshot, dateStr);
   const date = parseDateISO(dateStr);
   const todayStr = formatDateISO(new Date());
   const isToday = dateStr === todayStr;
   const isFuture = dateStr > todayStr;
 
-  // 邻接日期导航
   const prevDate = formatDateISO(addDays(parseDateISO(dateStr), -1));
   const nextDate = formatDateISO(addDays(parseDateISO(dateStr), 1));
-  const endDate = formatDateISO(addDays(parseDateISO(assignment.start_date), assignment.total_weeks * 7 - 1));
-  const showPrev = dateStr > assignment.start_date;
-  const showNext = dateStr < endDate;
 
-  const weekNo = planned?.weekNo || "—";
-  const phaseName = planned?.phase?.name || "—";
+  const inPlan = Boolean(planned);
+  const eyebrow = inPlan
+    ? `${weekdayName(date)} · 第 ${planned.weekNo || "—"} 周 · ${planned.phase?.name || "—"}`
+    : `${weekdayName(date)} · 自主训练`;
 
-  const plannedTitle = planned?.isRest ? "休息日" : (planned?.title || "—");
-  const plannedDetail = planned?.isRest
-    ? "今天没有安排训练课，建议做 20-30 分钟轻松活动（散步、瑜伽、拉伸），保持身体活跃但不累积疲劳。"
-    : (planned?.detail || "");
+  let displayPlanTitle;
+  let plannedDetail;
+  let plannedTitle;
+  if (planned?.isRest) {
+    displayPlanTitle = "休息日";
+    plannedTitle = "休息日";
+    plannedDetail = "今天没有安排训练课，建议做 20-30 分钟轻松活动（散步、瑜伽、拉伸），保持身体活跃但不累积疲劳。";
+  } else if (planned?.title) {
+    displayPlanTitle = planned.title;
+    plannedTitle = planned.title;
+    plannedDetail = planned.detail || "";
+  } else {
+    displayPlanTitle = "暂无课程";
+    plannedTitle = (log?.planned_title && log.planned_title !== "暂无课程")
+      ? log.planned_title
+      : "自主训练";
+    plannedDetail = "这一天没有系统课表安排，你可以自己记录训练。";
+  }
 
   app.innerHTML = `
     <section class="page day-page">
       <div class="day-nav">
-        ${showPrev ? `<a class="ghost-button" href="#/day/${prevDate}">← 前一天</a>` : `<span class="ghost-button disabled">← 前一天</span>`}
+        <a class="ghost-button" href="#/day/${prevDate}">← 前一天</a>
         <a class="ghost-button" href="#/calendar">日历</a>
-        ${showNext ? `<a class="ghost-button" href="#/day/${nextDate}">后一天 →</a>` : `<span class="ghost-button disabled">后一天 →</span>`}
+        <a class="ghost-button" href="#/day/${nextDate}">后一天 →</a>
       </div>
 
       <div class="page-head">
-        <p class="eyebrow">${escapeHtml(weekdayName(date))} · 第 ${weekNo} 周 · ${escapeHtml(phaseName)}</p>
+        <p class="eyebrow">${escapeHtml(eyebrow)}</p>
         <h2>${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 训练</h2>
         ${isToday ? `<p class="form-note">今天</p>` : isFuture ? `<p class="form-note">未来日期（可提前规划）</p>` : `<p class="form-note">历史日期</p>`}
       </div>
@@ -4501,9 +4796,9 @@ async function renderDayPage(app, user, dateStr) {
       <div class="day-grid">
         <article class="day-plan panel ${planned?.__adjusted ? "adjust-box" : ""}">
           <h3>今日计划${planned?.__adjusted ? ` <span class="badge badge-balanced" style="margin-left:6px;">🔧 已调整</span>` : ""}</h3>
-          <div class="day-plan-title">${escapeHtml(plannedTitle)}</div>
+          <div class="day-plan-title">${escapeHtml(displayPlanTitle)}</div>
           ${plannedDetail ? `<p class="day-plan-detail">${escapeHtml(plannedDetail)}</p>` : ""}
-          ${planned?.__adjusted && snapshot.adjust_log ? `<p class="form-note" style="margin-top:10px;">💡 本次调整依据：${escapeHtml(snapshot.adjust_log.summary || "")}（${snapshot.adjust_log.applied_at ? new Date(snapshot.adjust_log.applied_at).toLocaleDateString() : ""}）</p>` : ""}
+          ${planned?.__adjusted && snapshot?.adjust_log ? `<p class="form-note" style="margin-top:10px;">💡 本次调整依据：${escapeHtml(snapshot.adjust_log.summary || "")}（${snapshot.adjust_log.applied_at ? new Date(snapshot.adjust_log.applied_at).toLocaleDateString() : ""}）</p>` : ""}
         </article>
 
         <article class="day-log panel">
@@ -4551,9 +4846,56 @@ async function renderDayPage(app, user, dateStr) {
               备注
               <textarea id="logNote" rows="3" placeholder="如：小腿略紧，最后 2 组降速">${escapeHtml(log?.note || "")}</textarea>
             </label>
-            <div class="log-preview" id="logPreview">
-              ${log?.training_load ? `当前训练负荷：<strong>${log.training_load} AU</strong>` : "填写时长和强度后自动计算训练负荷"}
-            </div>
+            <details class="log-v2-structure" id="logV2Details">
+              <summary>间歇结构（可选）· Training Load V2</summary>
+              <p class="form-note">不填也可以保存。旧日志字段保持不变；补充组数/间歇后，V2 会按 incomplete-data 规则计分，而不是把缺秒数当成 0。</p>
+              <div class="log-grid">
+                <label>
+                  组数 repetitions
+                  <input type="number" id="logV2Reps" min="1" max="80" placeholder="如 8" />
+                </label>
+                <label>
+                  每组距离 rep distance（m）
+                  <input type="number" id="logV2RepDistance" min="0" max="10000" step="1" placeholder="如 400" />
+                </label>
+                <label>
+                  每组时间 / 配速
+                  <input type="text" id="logV2RepTime" placeholder="如 69–70 或 2:35,2:38,2:39 或 约 3:20/km" />
+                </label>
+                <label>
+                  组间恢复 duration
+                  <input type="text" id="logV2Recovery" placeholder="如 60 或 210–240 或 约 3分钟" />
+                </label>
+                <label>
+                  恢复类型 recovery type
+                  <select id="logV2RecoveryType">
+                    <option value="">—</option>
+                    <option value="walk/stand">走/站 walk/stand</option>
+                    <option value="jog">慢跑 jog</option>
+                    <option value="none">无间歇 none</option>
+                    <option value="unknown">未知 unknown</option>
+                  </select>
+                </label>
+                <label>
+                  数据精度 provenance
+                  <select id="logV2Provenance">
+                    <option value="exact">exact 精确</option>
+                    <option value="range">range 区间</option>
+                    <option value="approx">approx 大约</option>
+                    <option value="summary">summary 部分组</option>
+                    <option value="unknown">unknown 未知</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                间歇结构 interval structure
+                <input type="text" id="logV2IntervalStructure" placeholder="如 8×400 rest 60s" />
+              </label>
+              <label class="log-v2-heat">
+                <input type="checkbox" id="logV2HeatHot" />
+                <span>今日天气较热（热负荷仅作参考，不改变四维分数）</span>
+              </label>
+            </details>
             <div class="log-actions">
               <button type="submit" class="primary-button" id="logSubmit">${log ? "更新日志" : "保存日志"}</button>
               ${log ? `<button type="button" class="ghost-button" id="logDelete">删除</button>` : ""}
@@ -4562,25 +4904,63 @@ async function renderDayPage(app, user, dateStr) {
         </article>
       </div>
 
+      <div id="loadV2CardHost"></div>
       <div id="logFeedback" class="log-feedback"></div>
     </section>
   `;
 
-  // 实时计算训练负荷
-  const updatePreview = () => {
-    const dur = Number(document.getElementById("logDuration").value) || 0;
-    const rpe = Number(document.getElementById("logRpe").value) || 0;
-    const hr = Number(document.getElementById("logHr").value) || 0;
-    const age = snapshot.input_json?.age || 20;
-    const load = calcTrainingLoad(dur, rpe, hr, age);
-    const preview = document.getElementById("logPreview");
-    preview.innerHTML = load > 0
-      ? `当前训练负荷：<strong>${load} AU</strong>`
-      : "填写时长和强度后自动计算训练负荷";
+  if (window.TrainingLoadV2App && log?.load_v2_input) {
+    window.TrainingLoadV2App.fillLoadV2Form(log.load_v2_input);
+  }
+
+  const collectDayLogDraft = () => {
+    const v2Input = window.TrainingLoadV2App
+      ? window.TrainingLoadV2App.collectLoadV2InputFromForm()
+      : null;
+    return {
+      ...(log || {}),
+      planned_title: plannedTitle,
+      planned_detail: plannedDetail,
+      status: document.getElementById("logStatus").value,
+      duration_min: Number(document.getElementById("logDuration").value) || null,
+      distance_km: Number(document.getElementById("logDistance").value) || null,
+      avg_hr: Number(document.getElementById("logHr").value) || null,
+      rpe: Number(document.getElementById("logRpe").value) || null,
+      feeling: document.getElementById("logFeeling")?.value || null,
+      load_v2_input: v2Input,
+    };
   };
-  ["logDuration", "logRpe", "logHr"].forEach((id) => {
-    document.getElementById(id).addEventListener("input", updatePreview);
+
+  const refreshLoadV2Card = (logLike) => {
+    const host = document.getElementById("loadV2CardHost");
+    if (!host || !window.TrainingLoadV2App) return;
+    const scored = window.TrainingLoadV2App.scoreTrainingLogV2(logLike, snapshot);
+    host.innerHTML = window.TrainingLoadV2App.renderLoadV2CardHtml(scored, logLike);
+  };
+
+  const updatePreview = () => {
+    refreshLoadV2Card(collectDayLogDraft());
+  };
+  [
+    "logDuration",
+    "logDistance",
+    "logRpe",
+    "logHr",
+    "logV2Reps",
+    "logV2RepDistance",
+    "logV2RepTime",
+    "logV2Recovery",
+    "logV2RecoveryType",
+    "logV2Provenance",
+    "logV2IntervalStructure",
+    "logV2HeatHot",
+    "logFeeling",
+    "logStatus",
+  ].forEach((id) => {
+    document.getElementById(id)?.addEventListener("input", updatePreview);
+    document.getElementById(id)?.addEventListener("change", updatePreview);
   });
+  refreshLoadV2Card(collectDayLogDraft());
 
   // 提交日志
   document.getElementById("logForm").addEventListener("submit", async (e) => {
@@ -4592,8 +4972,6 @@ async function renderDayPage(app, user, dateStr) {
     const duration = Number(document.getElementById("logDuration").value) || null;
     const rpe = Number(document.getElementById("logRpe").value) || null;
     const hr = Number(document.getElementById("logHr").value) || null;
-    const age = snapshot.input_json?.age || 20;
-    const load = calcTrainingLoad(duration || 0, rpe || 0, hr || 0, age);
 
     const payload = {
       planned_title: plannedTitle,
@@ -4603,17 +4981,19 @@ async function renderDayPage(app, user, dateStr) {
       distance_km: Number(document.getElementById("logDistance").value) || null,
       avg_hr: hr,
       rpe: rpe,
-      intensity_factor: rpeToIntensityFactor(rpe || 0),
-      training_load: load,
       feeling: document.getElementById("logFeeling").value || null,
       note: document.getElementById("logNote").value.trim() || null,
+      load_v2_input: window.TrainingLoadV2App
+        ? window.TrainingLoadV2App.collectLoadV2InputFromForm()
+        : null,
     };
 
-    const feedbackContext = { user, assignment, snapshot };
+    const feedbackContext = { user, assignment, snapshot: planSnapshot || snapshot };
     try {
       const saved = await upsertTrainingLog(user.id, dateStr, payload);
       showToast("日志已保存", "success");
       renderDayFeedback(saved, planned, feedbackContext);
+      refreshLoadV2Card(saved);
       btn.disabled = false;
       btn.textContent = "更新日志";
       if (!document.getElementById("logDelete")) {
@@ -4637,7 +5017,7 @@ async function renderDayPage(app, user, dateStr) {
 
   // 渲染已有日志的反馈
   if (log) {
-    renderDayFeedback(log, planned, { user, assignment, snapshot });
+    renderDayFeedback(log, planned, { user, assignment, snapshot: planSnapshot || snapshot });
   }
 }
 
@@ -4654,13 +5034,6 @@ async function renderDayFeedback(log, planned, context) {
   if (log.status === "skipped") {
     feedback.push("今天跳过了训练。如果连续 2 天以上跳过，建议调整课表或降低负荷。");
   } else if (log.status === "completed" || log.status === "partial") {
-    const load = Number(log.training_load) || 0;
-    if (load > 0) {
-      if (load < 30) feedback.push(`训练负荷 ${load} AU，属于轻量训练，适合恢复或保持状态。`);
-      else if (load < 60) feedback.push(`训练负荷 ${load} AU，属于中等训练，保持这个节奏不错。`);
-      else if (load < 100) feedback.push(`训练负荷 ${load} AU，属于较大训练量，注意后续 24 小时的恢复。`);
-      else feedback.push(`训练负荷 ${load} AU，属于高强度训练，建议明天安排轻松或休息日。`);
-    }
     if (log.rpe) {
       const rpe = Number(log.rpe);
       if (rpe >= 16 && log.status === "completed") {
@@ -5031,6 +5404,8 @@ async function renderLogsPage(app, user) {
       listTrainingLogs(user.id, sevenDaysAgo, todayStr),
       listTrainingLogs(user.id, twentyEightDaysAgo, todayStr),
     ]);
+    logs7 = (logs7 || []).map((l) => attachLoadV2Input(l, user.id, l.log_date));
+    logs28 = (logs28 || []).map((l) => attachLoadV2Input(l, user.id, l.log_date));
     allLogs = logs28;
   } catch (e) {
     app.innerHTML = `<div class="guard"><h2>加载失败</h2><p>${escapeHtml(e.message || String(e))}</p></div>`;
@@ -5040,18 +5415,16 @@ async function renderLogsPage(app, user) {
   const summary7 = summarizeLoad(logs7);
   const summary28 = summarizeLoad(logs28);
 
-  // 7 天每日负荷条形图
   const daily7 = [];
   for (let i = 6; i >= 0; i--) {
     const d = addDays(today, -i);
     const ds = formatDateISO(d);
     const l = logs7.find((x) => x.log_date === ds);
-    const load = l?.training_load ? Number(l.training_load) : 0;
-    daily7.push({ date: d, load, status: l?.status || "pending", label: `${d.getMonth() + 1}/${d.getDate()}`, wd: weekdayName(d) });
+    const duration = l?.duration_min ? Number(l.duration_min) : 0;
+    daily7.push({ date: d, duration, status: l?.status || "pending", label: `${d.getMonth() + 1}/${d.getDate()}`, wd: weekdayName(d) });
   }
-  const maxLoad7 = Math.max(20, ...daily7.map((d) => d.load));
+  const maxDur7 = Math.max(30, ...daily7.map((d) => d.duration));
 
-  // 4 周每周负荷趋势
   const weekly28 = [];
   for (let w = 3; w >= 0; w--) {
     const wEnd = addDays(today, -w * 7);
@@ -5060,34 +5433,33 @@ async function renderLogsPage(app, user) {
     const s = summarizeLoad(wLogs);
     weekly28.push({ start: wStart, end: wEnd, ...s });
   }
-  const maxWeeklyLoad = Math.max(50, ...weekly28.map((w) => w.totalLoad));
+  const maxWeeklyDur = Math.max(60, ...weekly28.map((w) => w.totalDuration));
 
   app.innerHTML = `
     <section class="page logs-page">
       <div class="page-head">
         <p class="eyebrow">训练历史</p>
-        <h2>训练负荷与趋势</h2>
-        <p class="form-note">基于每日训练日志，自动汇总 7 天与 28 天训练数据。</p>
+        <h2>训练记录与趋势</h2>
+        <p class="form-note">趋势按训练时长统计。四维负荷在当日页查看。</p>
       </div>
 
       <div class="logs-grid">
         <article class="panel logs-block">
           <h3>最近 7 天</h3>
           <div class="logs-summary">
-            <div><span>训练负荷</span><strong>${summary7.totalLoad} AU</strong></div>
             <div><span>训练时长</span><strong>${summary7.totalDuration} 分钟</strong></div>
             <div><span>训练距离</span><strong>${summary7.totalDistance} km</strong></div>
-            <div><span>训练次数</span><strong>${summary7.sessions}</strong></div>
+            <div><span>完成 / 部分 / 跳过</span><strong>${summary7.completed} / ${summary7.partial} / ${summary7.skipped}</strong></div>
           </div>
           <div class="logs-bar-chart">
             ${daily7.map((d) => `
               <div class="bar-col">
                 <div class="bar-track">
-                  <div class="bar-fill ${d.status === "completed" ? "bar-done" : d.status === "partial" ? "bar-partial" : d.status === "skipped" ? "bar-skip" : d.load ? "bar-done" : "bar-empty"}"
-                       style="height: ${Math.max(4, (d.load / maxLoad7) * 100)}%"></div>
+                  <div class="bar-fill ${d.status === "completed" ? "bar-done" : d.status === "partial" ? "bar-partial" : d.status === "skipped" ? "bar-skip" : d.duration ? "bar-done" : "bar-empty"}"
+                       style="height: ${Math.max(4, (d.duration / maxDur7) * 100)}%"></div>
                 </div>
                 <div class="bar-label">${d.label}</div>
-                <div class="bar-value">${d.load > 0 ? d.load.toFixed(0) : "—"}</div>
+                <div class="bar-value">${d.duration > 0 ? d.duration.toFixed(0) : "—"}</div>
               </div>
             `).join("")}
           </div>
@@ -5096,17 +5468,16 @@ async function renderLogsPage(app, user) {
         <article class="panel logs-block">
           <h3>最近 28 天</h3>
           <div class="logs-summary">
-            <div><span>训练负荷</span><strong>${summary28.totalLoad} AU</strong></div>
             <div><span>训练时长</span><strong>${summary28.totalDuration} 分钟</strong></div>
             <div><span>训练距离</span><strong>${summary28.totalDistance} km</strong></div>
-            <div><span>完成率</span><strong>${summary28.sessions ? Math.round((summary28.completed / summary28.sessions) * 100) : 0}%</strong></div>
+            <div><span>完成 / 部分 / 跳过</span><strong>${summary28.completed} / ${summary28.partial} / ${summary28.skipped}</strong></div>
           </div>
           <div class="logs-weekly">
             ${weekly28.map((w, i) => `
               <div class="weekly-col">
-                <div class="weekly-bar" style="height: ${Math.max(4, (w.totalLoad / maxWeeklyLoad) * 100)}%"></div>
+                <div class="weekly-bar" style="height: ${Math.max(4, (w.totalDuration / maxWeeklyDur) * 100)}%"></div>
                 <div class="weekly-label">第 ${i + 1} 周</div>
-                <div class="weekly-value">${w.totalLoad.toFixed(0)} AU</div>
+                <div class="weekly-value">${w.totalDuration.toFixed(0)}</div>
               </div>
             `).join("")}
           </div>
@@ -5118,7 +5489,7 @@ async function renderLogsPage(app, user) {
             ? `<p class="form-note">还没有训练日志，去训练日历选择一天开始记录吧。</p>`
             : `<table class="logs-table">
                 <thead>
-                  <tr><th>日期</th><th>项目</th><th>状态</th><th>负荷</th><th>时长</th><th>RPE</th><th>操作</th></tr>
+                  <tr><th>日期</th><th>项目</th><th>状态</th><th>时长</th><th>距离</th><th>RPE</th><th>操作</th></tr>
                 </thead>
                 <tbody>
                   ${allLogs.slice(0, 30).map((l) => `
@@ -5126,8 +5497,8 @@ async function renderLogsPage(app, user) {
                       <td><a href="#/day/${l.log_date}">${l.log_date}</a></td>
                       <td>${escapeHtml(l.planned_title || "—")}</td>
                       <td class="status-${l.status}">${statusLabel(l.status)}</td>
-                      <td>${l.training_load ? Number(l.training_load).toFixed(0) : "—"}</td>
                       <td>${l.duration_min || "—"}</td>
+                      <td>${l.distance_km || "—"}</td>
                       <td>${l.rpe || "—"}</td>
                       <td><button class="ghost-button danger-btn log-del-btn" data-date="${escapeHtml(l.log_date)}">删除</button></td>
                     </tr>
@@ -5238,7 +5609,7 @@ async function renderSyncPage(app, user) {
           <ol class="sync-steps">
             <li>在你的运动 APP 或设备中找到要导出的活动，选择<strong>导出文件</strong>（格式见下方各平台说明）。</li>
             <li>在下方 <strong>「批量上传文件」</strong> 区域把导出的 .fit / .tcx / .gpx / .csv 文件拖进来，或点击选择。</li>
-            <li>系统会自动解析、去重、换算训练负荷，并写入你的训练日志。同一活动不会被重复导入。</li>
+            <li>系统会自动解析、去重，并写入你的训练日志。同一活动不会被重复导入。</li>
           </ol>
           <p class="muted"><strong>格式选择指南：</strong>佳明推荐 <code>.fit</code>（原厂二进制，含步频/触地时间/垂直振幅等跑步动态）；高驰/松拓推荐 <code>.tcx</code>；Apple Watch / 华为 / 小米 / 华米推荐 <code>.gpx</code>；Excel 整理用 <code>.csv</code>。</p>
           <p class="muted"><strong>进阶：</strong>如果已经把高驰/佳明数据同步到 Strava，未来可以部署简单后端实现 Strava OAuth 自动拉取（本系统已预留连接表架构）。</p>
@@ -5497,7 +5868,7 @@ async function renderSyncPage(app, user) {
                 <tr>
                   <th><input type="checkbox" id="selectAllChk" checked /></th>
                   <th>日期</th><th>活动</th><th>时长</th><th>距离</th>
-                  <th>平均心率</th><th>RPE</th><th>训练负荷</th>
+                  <th>平均心率</th><th>RPE</th>
                   <th>来源</th><th>状态</th>
                 </tr>
               </thead>
@@ -5632,9 +6003,6 @@ async function renderSyncPage(app, user) {
     const total = pendingActivities.length;
     const dups = pendingActivities.filter((a) => a.__dup).length;
     const selected = pendingActivities.filter((a) => a.__selected && !a.__dup).length;
-    const totalLoad = pendingActivities
-      .filter((a) => a.__selected && !a.__dup)
-      .reduce((s, a) => s + (Number(a.training_load) || 0), 0);
     const totalDist = pendingActivities
       .filter((a) => a.__selected && !a.__dup)
       .reduce((s, a) => s + (Number(a.distance_km) || 0), 0);
@@ -5649,7 +6017,6 @@ async function renderSyncPage(app, user) {
         <span class="pill pill-ok">待导入 <strong>${selected}</strong> 条</span>
         <span class="pill pill-info">总距离 <strong>${totalDist.toFixed(1)} km</strong></span>
         <span class="pill pill-info">总时长 <strong>${Math.round(totalDur)} 分钟</strong></span>
-        <span class="pill pill-info">训练负荷 <strong>${totalLoad.toFixed(0)}</strong></span>
       </div>
     `;
 
@@ -5671,7 +6038,6 @@ async function renderSyncPage(app, user) {
           <td>${a.distance_km != null ? `${a.distance_km.toFixed(2)} km` : "—"}</td>
           <td>${a.avg_hr || "—"}</td>
           <td>${a.rpe || "—"}</td>
-          <td><strong>${a.training_load != null ? a.training_load.toFixed(1) : "—"}</strong></td>
           <td><span class="badge badge-balanced">${escapeHtml(sourceTypeLabel(a.source_type))}</span>
             <div class="muted small">文件：${escapeHtml(a.__file || "")}</div>
           </td>

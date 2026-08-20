@@ -44,7 +44,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:image" content="./logo.png" />
 
-  <link rel="stylesheet" href="./styles.css?v=37" />
+  <link rel="stylesheet" href="./styles.css?v=43" />
 </head>
 <body>
   <header class="topbar">
@@ -80,13 +80,32 @@
   <script src="https://cdn.jsdelivr.net/npm/fit-file-parser@1.6.0/dist/fit-file-parser.min.js"></script>
   <!-- Supabase 配置（URL + anon key，需自行填写） -->
   <script src="./supabase-config.js"></script>
+  <!-- Training Load V2 · Beta (verified prototype scorer, then App adapter) -->
+  <script src="./prototypes/training-load-v2-recovery.js?v=2"></script>
+  <script src="./prototypes/training-load-v2-prototype.js?v=2"></script>
+  <script src="./prototypes/training-load-v2-incomplete.js?v=2"></script>
+  <script src="./js/training-load-v2-app.js?v=5"></script>
   <!-- 应用主逻辑 -->
-  <script src="./app.js?v=36"></script>
+  <script src="./app.js?v=43"></script>
 
-  <!-- PWA: Service Worker 注册 -->
+  <!-- PWA: Service Worker 注册（localhost 手测时关闭，避免缓存旧脚本） -->
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
+        var isLocal =
+          location.hostname === "localhost" || location.hostname === "127.0.0.1";
+        if (isLocal) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (r) { r.unregister(); });
+          });
+          if (window.caches) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (k) { caches.delete(k); });
+            });
+          }
+          console.log("[PWA] Service Worker skipped on localhost.");
+          return;
+        }
         navigator.serviceWorker
           .register("./service-worker.js", { scope: "./" })
           .then((reg) => {
