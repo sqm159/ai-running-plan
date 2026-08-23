@@ -40,3 +40,9 @@ window.SUPABASE_CONFIGURED = (function () {
     (cfg.anonKey.startsWith("sb_publishable_") || cfg.anonKey.startsWith("eyJ"));
   return urlOk && keyOk;
 })();
+
+/* 手机号验证码 + 微信登录的 Cloudflare Worker 地址。
+ * 例：https://nextlap-auth.你的账号.workers.dev
+ * 还没部署登录服务时保持空字符串，页面会提示尚未开通。
+ */
+window.PHONE_WORKER_URL = "https://nextlap-auth.chenghongying83.workers.dev";
