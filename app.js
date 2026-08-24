@@ -3288,13 +3288,26 @@ function updateNavActive(path) {
   });
 }
 
+function navAccountLabel(user) {
+  const email = String((user && user.email) || "");
+  const metaPhone = user && user.user_metadata && user.user_metadata.phone;
+  const fake = email.match(/^p86(\d{11})@phone\.nextlap\.local$/i);
+  const digits = fake
+    ? fake[1]
+    : String(metaPhone || "").replace(/\D/g, "").replace(/^86(?=\d{11}$)/, "");
+  if (/^1\d{10}$/.test(digits)) return digits.slice(0, 3) + "****" + digits.slice(7);
+  if (/^wx_/i.test(email) && /wechat\.nextlap\.local$/i.test(email)) return "微信用户";
+  return email;
+}
+
 function renderNavAuth() {
   const el = document.getElementById("navAuth");
   if (!el) return;
   if (currentUser) {
-    const email = currentUser.email || "";
+    const label = navAccountLabel(currentUser);
+    const full = currentUser.email || label;
     el.innerHTML = `
-      <span class="nav-user">已登录 <strong>${escapeHtml(email)}</strong></span>
+      <span class="nav-user" title="${escapeHtml(full)}">${escapeHtml(label)}</span>
       <button class="ghost-button" id="logoutBtn">退出</button>
     `;
     const btn = document.getElementById("logoutBtn");
