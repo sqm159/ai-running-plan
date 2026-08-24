@@ -174,10 +174,363 @@
     return !(t[400] > 0 && t[5000] > 0);
   }
 
+  function parsePaceSecPerKm(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return null;
+    const m = s
+      .replace(/／/g, "/")
+      .replace(/'/g, ":")
+      .match(/(\d+)\s*:\s*(\d+(?:\.\d+)?)/);
+    if (!m) return null;
+    const sec = Number(m[1]) * 60 + Number(m[2]);
+    return sec > 0 ? sec : null;
+  }
+
+  function collectAuxBout(prefix) {
+    const el = (id) => document.getElementById(id);
+    if (!el(prefix + "Skip") && !el(prefix + "Duration")) return null;
+    const skipped = Boolean(el(prefix + "Skip") && el(prefix + "Skip").checked);
+    const durationMin = Number(el(prefix + "Duration") && el(prefix + "Duration").value) || null;
+    const distanceKm = Number(el(prefix + "Distance") && el(prefix + "Distance").value) || null;
+    const paceRaw = ((el(prefix + "Pace") && el(prefix + "Pace").value) || "").trim() || null;
+    const avgHr = Number(el(prefix + "Hr") && el(prefix + "Hr").value) || null;
+    if (skipped) return { skipped: true, durationMin, distanceKm, paceRaw, avgHr };
+    if (!durationMin && !distanceKm && !paceRaw && !avgHr) return null;
+    return {
+      skipped: false,
+      durationMin,
+      distanceKm,
+      paceRaw,
+      avgHr,
+    };
+  }
+
+  function fillAuxBout(prefix, bout) {
+    const set = (id, v) => {
+      const n = document.getElementById(id);
+      if (n) n.value = v == null || v === "" ? "" : String(v);
+    };
+    const skip = document.getElementById(prefix + "Skip");
+    if (skip) skip.checked = Boolean(bout && bout.skipped);
+    set(prefix + "Duration", bout ? bout.durationMin : "");
+    set(prefix + "Distance", bout ? bout.distanceKm : "");
+    set(prefix + "Pace", bout ? bout.paceRaw : "");
+    set(prefix + "Hr", bout ? bout.avgHr : "");
+  }
+
+  function applyAuxSkipVisibility() {
+    if (typeof document === "undefined") return;
+    ["logWarmup", "logCooldown"].forEach((prefix) => {
+      const skip = document.getElementById(prefix + "Skip");
+      const fields = document.getElementById(prefix + "Fields");
+      if (fields) fields.hidden = Boolean(skip && skip.checked);
+    });
+  }
+
+  function auxPartFromBout(block, bout) {
+    if (!bout || bout.skipped) return null;
+    let durationS = Number(bout.durationMin) > 0 ? Number(bout.durationMin) * 60 : null;
+    let distanceM = Number(bout.distanceKm) > 0 ? Number(bout.distanceKm) * 1000 : null;
+    const pace = parsePaceSecPerKm(bout.paceRaw);
+    if (pace && distanceM && !durationS) durationS = (distanceM / 1000) * pace;
+    if (pace && durationS && !distanceM) distanceM = (durationS / pace) * 1000;
+    if (!(durationS > 0) && !(distanceM > 0)) return null;
+    return workRep({
+      block,
+      distance_m: distanceM,
+      duration_s: durationS,
+      rest_s: 0,
+      restProvenance: "none",
+      hr_avg: Number(bout.avgHr) > 0 ? Number(bout.avgHr) : null,
+    });
+  }
+
+  function attachAuxParts(session, input) {
+    if (!session || !input) return session;
+    const existing = session.parts || [];
+    const alreadyWrapped = existing.some((p) => p && (p.block === "warmup" || p.block === "cooldown"));
+    if (alreadyWrapped) return session;
+    const warmup = auxPartFromBout("warmup", input.warmup);
+    const cooldown = auxPartFromBout("cooldown", input.cooldown);
+    if (!warmup && !cooldown) return session;
+    session.parts = [warmup, ...existing, cooldown].filter(Boolean);
+    session.warmup = warmup || null;
+    session.cooldown = cooldown || null;
+    return session;
+  }
+
+  function sessionShellFromLog(log, extra) {
+    return {
+      id: log.id || "app-log",
+      name: log.planned_title || "session",
+      source: "training_log",
+      completed: log.status === "completed" || log.status === "partial",
+      type_hint: "run",
+      warmup: null,
+      cooldown: null,
+      hrSessionAvg: log.avg_hr != null ? Number(log.avg_hr) : null,
+      rpe_6_20: log.rpe != null ? Number(log.rpe) : null,
+      prescription: log.planned_detail || "",
+      parts: [],
+      ...extra,
+    };
+  }
+
+  function comboId() {
+    return "g" + Math.random().toString(36).slice(2, 9);
+  }
+
+  function parseComboGroups(raw) {
+    try {
+      const parsed = JSON.parse(String(raw || ""));
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && Array.isArray(parsed.groups)) return parsed.groups;
+    } catch (_) {
+      /* ignore broken draft */
+    }
+    return [];
+  }
+
+  function makeComboStep(distanceM) {
+    return {
+      id: comboId(),
+      distanceM: Number(distanceM) > 0 ? Number(distanceM) : null,
+      durationRaw: "",
+      restRaw: "",
+    };
+  }
+
+  function exampleComboGroups() {
+    return [
+      {
+        id: comboId(),
+        times: 2,
+        steps: [makeComboStep(1000), makeComboStep(600), makeComboStep(400)],
+      },
+    ];
+  }
+
+  function comboGroupsHaveWork(groups) {
+    return (groups || []).some((group) =>
+      (group.steps || []).some(
+        (step) => Number(step.distanceM) > 0 || Boolean(parseDurationToken(step.durationRaw))
+      )
+    );
+  }
+
+  function formatComboStepShort(step) {
+    const n = Number(step && step.distanceM);
+    if (n > 0) {
+      if (n % 1000 === 0) return n / 1000 + "km";
+      if (n >= 1000) return (n / 1000).toFixed(n % 100 === 0 ? 1 : 2) + "km";
+      return Math.round(n) + "m";
+    }
+    return String((step && step.durationRaw) || "").trim() || "?";
+  }
+
+  function formatComboGroupsSummary(groups) {
+    if (!comboGroupsHaveWork(groups)) return "";
+    return groups
+      .map((group) => {
+        const inner = (group.steps || []).map(formatComboStepShort).join("+");
+        return String(group.times || 1) + "×(" + inner + ")";
+      })
+      .join(" + ");
+  }
+
+  function sessionFromComboGroups(log, input) {
+    const groups = input && input.comboGroups;
+    if (!comboGroupsHaveWork(groups)) return null;
+    const parts = [];
+    groups.forEach((group, groupIndex) => {
+      const times = Math.max(1, Number(group.times) || 1);
+      const steps = group.steps || [];
+      for (let i = 0; i < times; i += 1) {
+        steps.forEach((step, stepIndex) => {
+          const isLast =
+            groupIndex === groups.length - 1 && i === times - 1 && stepIndex === steps.length - 1;
+          const restParsed = parseDurationToken(step.restRaw);
+          let rest_s = null;
+          let restProvenance = "unknown";
+          if (restParsed) {
+            rest_s = restParsed.sec;
+            restProvenance = restParsed.approximate ? "user_recalled_approx" : "specified";
+          } else if (isLast) {
+            rest_s = 0;
+            restProvenance = "last_none";
+          }
+          const distanceM = Number(step.distanceM) > 0 ? Number(step.distanceM) : null;
+          const parsed = parseDurationToken(step.durationRaw);
+          parts.push(
+            workRep({
+              distance_m: distanceM,
+              duration_s: parsed ? parsed.sec : null,
+              rest_s,
+              restProvenance,
+            })
+          );
+        });
+      }
+    });
+    if (!parts.length) return null;
+    const summary = formatComboGroupsSummary(groups);
+    return sessionShellFromLog(log, {
+      name: summary || log.planned_title || "自由组合",
+      type_hint: parts.length > 1 ? "interval" : "run",
+      prescription: summary,
+      parts,
+      recoveryType: parts.some((p) => p.restProvenance === "unknown") ? "unknown" : "specified",
+    });
+  }
+
+  function readComboGroupsFromForm() {
+    if (typeof document === "undefined") return [];
+    const node = document.getElementById("logV2ComboJson");
+    return parseComboGroups(node && node.value);
+  }
+
+  function writeComboGroupsToForm(groups) {
+    if (typeof document === "undefined") return;
+    const node = document.getElementById("logV2ComboJson");
+    if (node) node.value = JSON.stringify(groups || []);
+    const summary = document.getElementById("logComboSummary");
+    if (summary) {
+      summary.textContent = formatComboGroupsSummary(groups) || "还没有重复组。";
+    }
+  }
+
+  function comboStepHtml(step) {
+    const distanceVal = Number(step.distanceM) > 0 ? String(step.distanceM) : "";
+    const durationVal = step.durationRaw || "";
+    const restVal = step.restRaw || "";
+    return `<div class="combo-step-row" data-combo-id="${escapeText(step.id)}" data-combo-kind="step">
+      <label>距离（m）<input data-combo-field="distanceM" type="number" min="0" step="1" value="${escapeText(distanceVal)}" placeholder="如 1000" /></label>
+      <label>成绩 / 时间<input data-combo-field="durationRaw" value="${escapeText(durationVal)}" placeholder="可选，如 3:20" /></label>
+      <label>组间恢复<input data-combo-field="restRaw" value="${escapeText(restVal)}" placeholder="如 60 或 2:00" /></label>
+      <button type="button" class="ghost-button combo-mini" data-combo-act="remove">删除</button>
+    </div>`;
+  }
+
+  function comboGroupHtml(group, index) {
+    const steps = (group.steps || []).map(comboStepHtml).join("");
+    return `<div class="combo-group" data-combo-id="${escapeText(group.id)}" data-combo-kind="group">
+      <div class="combo-group-head">
+        <strong>重复组 ${escapeText(String(index + 1))}</strong>
+        <div class="combo-times">
+          <button type="button" class="ghost-button combo-mini" data-combo-act="dec-times">−</button>
+          <span>${escapeText(String(group.times || 1))} 次</span>
+          <button type="button" class="ghost-button combo-mini" data-combo-act="inc-times">+</button>
+        </div>
+        <button type="button" class="ghost-button combo-mini" data-combo-act="remove">删除整组</button>
+      </div>
+      <div class="combo-group-steps">${steps}</div>
+      <div class="combo-group-foot">
+        <button type="button" class="ghost-button combo-mini" data-combo-act="add-step">组内加一段</button>
+      </div>
+    </div>`;
+  }
+
+  function renderComboGroupsHtml(groups) {
+    const body = (groups || []).map(comboGroupHtml).join("");
+    return `<p class="combo-summary" id="logComboSummary">${escapeText(formatComboGroupsSummary(groups) || "还没有重复组。")}</p>
+      <div class="combo-list">${body || `<p class="form-note">还没有重复组。可点「填入示例」看 2×(1000+600+400)。</p>`}</div>
+      <div class="combo-toolbar">
+        <button type="button" class="ghost-button" data-combo-act="add-group">添加重复组</button>
+        <button type="button" class="ghost-button" data-combo-act="example">填入示例</button>
+      </div>`;
+  }
+
+  function findComboItem(groups, id) {
+    for (let i = 0; i < groups.length; i += 1) {
+      if (groups[i].id === id) return { list: groups, index: i, item: groups[i], group: groups[i] };
+      const steps = groups[i].steps || [];
+      for (let j = 0; j < steps.length; j += 1) {
+        if (steps[j].id === id) return { list: steps, index: j, item: steps[j], group: groups[i] };
+      }
+    }
+    return null;
+  }
+
+  function mountComboBuilder(host, onChange) {
+    if (!host) return;
+    let groups = readComboGroupsFromForm();
+
+    const redraw = () => {
+      writeComboGroupsToForm(groups);
+      host.innerHTML = renderComboGroupsHtml(groups);
+      writeComboGroupsToForm(groups);
+      if (typeof onChange === "function") onChange(groups);
+    };
+
+    host.onclick = (event) => {
+      const btn = event.target.closest("[data-combo-act]");
+      if (!btn || !host.contains(btn)) return;
+      const act = btn.getAttribute("data-combo-act");
+      const card = btn.closest("[data-combo-id]");
+      const id = card ? card.getAttribute("data-combo-id") : null;
+      if (act === "example") {
+        groups = exampleComboGroups();
+        redraw();
+        return;
+      }
+      if (act === "add-group") {
+        groups.push({
+          id: comboId(),
+          times: 2,
+          steps: [makeComboStep(400)],
+        });
+        redraw();
+        return;
+      }
+      if (!id) return;
+      const found = findComboItem(groups, id);
+      if (!found) return;
+      if (act === "remove") {
+        found.list.splice(found.index, 1);
+        redraw();
+        return;
+      }
+      if (act === "inc-times") {
+        found.group.times = Math.min(20, (Number(found.group.times) || 1) + 1);
+        redraw();
+        return;
+      }
+      if (act === "dec-times") {
+        found.group.times = Math.max(1, (Number(found.group.times) || 1) - 1);
+        redraw();
+        return;
+      }
+      if (act === "add-step") {
+        found.group.steps = found.group.steps || [];
+        found.group.steps.push(makeComboStep(null));
+        redraw();
+      }
+    };
+
+    const saveField = (event) => {
+      const field = event.target.getAttribute("data-combo-field");
+      if (!field) return;
+      const card = event.target.closest("[data-combo-id]");
+      if (!card) return;
+      const found = findComboItem(groups, card.getAttribute("data-combo-id"));
+      if (!found) return;
+      const raw = String(event.target.value || "").trim();
+      if (field === "distanceM") found.item.distanceM = Number(raw) > 0 ? Number(raw) : null;
+      if (field === "durationRaw") found.item.durationRaw = raw;
+      if (field === "restRaw") found.item.restRaw = raw;
+      writeComboGroupsToForm(groups);
+      if (typeof onChange === "function") onChange(groups);
+    };
+
+    host.oninput = saveField;
+    host.onchange = saveField;
+    redraw();
+  }
+
   function collectLoadV2InputFromForm() {
     if (typeof document === "undefined") return null;
     const el = (id) => document.getElementById(id);
-    if (!el("logV2Reps") && !el("logV2RepDistance") && !el("logV2RepTime")) return null;
+    if (!el("logV2Reps") && !el("logWarmupSkip") && !el("logCooldownSkip")) return null;
     const repetitions = Number(el("logV2Reps") && el("logV2Reps").value) || null;
     const repDistanceM = Number(el("logV2RepDistance") && el("logV2RepDistance").value) || null;
     const repTimeRaw = ((el("logV2RepTime") && el("logV2RepTime").value) || "").trim();
@@ -186,6 +539,10 @@
     const provenance = ((el("logV2Provenance") && el("logV2Provenance").value) || "").trim() || null;
     const intervalStructure = ((el("logV2IntervalStructure") && el("logV2IntervalStructure").value) || "").trim() || null;
     const heatHot = Boolean(el("logV2HeatHot") && el("logV2HeatHot").checked);
+    const warmup = collectAuxBout("logWarmup");
+    const cooldown = collectAuxBout("logCooldown");
+    const comboGroups = readComboGroupsFromForm();
+    const comboEmpty = !comboGroupsHaveWork(comboGroups);
     if (
       !repetitions &&
       !repDistanceM &&
@@ -194,11 +551,17 @@
       !recoveryType &&
       !intervalStructure &&
       !heatHot &&
+      !warmup &&
+      !cooldown &&
+      comboEmpty &&
       (!provenance || provenance === "exact")
     ) {
       return null;
     }
     return {
+      warmup,
+      cooldown,
+      comboGroups: comboEmpty ? null : comboGroups,
       repetitions,
       repDistanceM,
       repTimeRaw: repTimeRaw || null,
@@ -216,6 +579,9 @@
       const n = document.getElementById(id);
       if (n) n.value = v == null || v === "" ? "" : String(v);
     };
+    fillAuxBout("logWarmup", input.warmup);
+    fillAuxBout("logCooldown", input.cooldown);
+    set("logV2ComboJson", input.comboGroups ? JSON.stringify(input.comboGroups) : "");
     set("logV2Reps", input.repetitions);
     set("logV2RepDistance", input.repDistanceM);
     set("logV2RepTime", input.repTimeRaw);
@@ -229,6 +595,7 @@
     if (details && (input.repetitions || input.repDistanceM || input.repTimeRaw || input.recoveryRaw || input.intervalStructure)) {
       details.open = true;
     }
+    applyAuxSkipVisibility();
   }
 
   function restOnParts(n, recovery, recoveryType) {
@@ -266,6 +633,8 @@
   }
 
   function sessionFromStructuredInput(log, input) {
+    const comboSession = sessionFromComboGroups(log, input);
+    if (comboSession) return comboSession;
     const n = Number(input.repetitions) > 0 ? Math.round(Number(input.repetitions)) : 0;
     const dist = Number(input.repDistanceM) > 0 ? Number(input.repDistanceM) : null;
     const parsedTime = parseRepTimeField(input.repTimeRaw);
@@ -435,11 +804,16 @@
   function logRowToV2Session(log) {
     if (!log) return null;
     const input = log.load_v2_input;
+    let session = null;
     if (input && typeof input === "object") {
-      const structured = sessionFromStructuredInput(log, input);
-      if (structured) return structured;
+      session = sessionFromStructuredInput(log, input);
     }
-    return sessionFromLegacyLog(log);
+    if (!session) session = sessionFromLegacyLog(log);
+    if (!session && input && (input.warmup || input.cooldown)) {
+      session = sessionShellFromLog(log, { recoveryType: "none" });
+    }
+    if (session && input) session = attachAuxParts(session, input);
+    return session;
   }
 
   function confidenceBand(x) {
@@ -531,14 +905,14 @@
     const nm = levelRank(levels.NM);
     const mech = levelRank(levels.MECH);
     const peak = Math.max(cv, met, nm, mech);
-    if (peak <= 1) return "整体刺激不深，更接近保持或恢复性质。";
-    if (nm >= 2 && met <= 1 && cv <= 1) return "这更像速度或神经刺激课，心肺堆积不是主体。";
-    if (met >= 2 && cv >= 2) return "这更像一堂有氧和代谢都吃得比较深的质量课，不是轻松有氧。";
-    if (met >= 2 && nm >= 2) return "代谢和神经肌肉都上来了，属于比较完整的间歇质量课。";
-    if (mech >= 2 && cv <= 1 && nm <= 1) return "机械暴露相对更明显，常见于跑量或受力偏高、速度并不极端的课。机械暴露不是伤病判断。";
-    if (cv >= 2 && met <= 1 && nm <= 1) return "主要是持续有氧压力，速度刺激不算突出。";
-    if (peak >= 3) return "至少有一维已经到很高，今天这堂课吃得比较深。";
-    return "今天有一定质量刺激，但还没到需要特别保守的程度。";
+    if (peak <= 1) return "刺激不深，更像保持或恢复。";
+    if (nm >= 2 && met <= 1 && cv <= 1) return "更像速度、神经那一类课，心肺不是主角。";
+    if (met >= 2 && cv >= 2) return "有氧和代谢都吃得比较深，不是轻松有氧。";
+    if (met >= 2 && nm >= 2) return "代谢和腿上的神经刺激都上来了，是比较完整的一堂间歇。";
+    if (mech >= 2 && cv <= 1 && nm <= 1) return "跑量和受力更明显一些，速度不一定极端。这是机械暴露，不是在说你会受伤。";
+    if (cv >= 2 && met <= 1 && nm <= 1) return "主要是持续有氧压力，速度刺激一般。";
+    if (peak >= 3) return "至少有一维已经很高了，今天吃得比较深。";
+    return "有点质量，但还没到要特别收着的程度。";
   }
 
   function degreeHeadline(levels) {
@@ -548,10 +922,88 @@
       levelRank(levels.NM),
       levelRank(levels.MECH)
     );
-    if (peak >= 3) return "今天练得比较重。";
-    if (peak >= 2) return "今天是一堂有质量的课。";
-    if (peak >= 1) return "今天负荷中等偏轻。";
-    return "今天整体比较轻松。";
+    if (peak >= 3) return "今天这堂课挺沉的。";
+    if (peak >= 2) return "今天是有质量的一堂。";
+    if (peak >= 1) return "今天偏轻松，练着保持就好。";
+    return "今天整体很轻松。";
+  }
+
+  function eightHundredFocus(levels, primary) {
+    const cv = levelRank(levels.CV);
+    const met = levelRank(levels.MET);
+    const nm = levelRank(levels.NM);
+    const mech = levelRank(levels.MECH);
+    const peak = Math.max(cv, met, nm, mech);
+    if (peak <= 1) {
+      return [
+        "今天重点是保持，不是 800 米专项日。",
+        "对专项来说更靠近有氧能力，给后面的速度课垫底。",
+      ];
+    }
+    if (nm >= 2 && nm >= met && nm >= cv && met <= 1) {
+      return [
+        "今天重点是速度和神经动员。",
+        "对应 800 米里的绝对速度：前程提速、把腿叫醒的那一下。",
+      ];
+    }
+    if (met >= 2 && nm >= 2) {
+      return [
+        "今天重点是高速下还能把节奏保住。",
+        "对应 800 米的中段速度耐力：比赛中段那 200–300 米别掉速。",
+      ];
+    }
+    if (met >= 2 && cv >= 2) {
+      return [
+        "今天重点是深度疲劳里还能往外推。",
+        "对应 800 米的末段乳酸能力，也捎上 VO₂max。后程发酸时动作不散，靠的就是这个。",
+      ];
+    }
+    if (met >= 2 && met >= cv && met >= nm) {
+      return [
+        "今天重点是代谢压力，酸感会比较明显。",
+        "对应 800 米的末段乳酸能力，练的是后程顶住。",
+      ];
+    }
+    if (cv >= 2 && met >= 1) {
+      return [
+        "今天重点是持续有氧压力。",
+        "对应 800 米里的 VO₂max，专项日之外用来把发动机做大。",
+      ];
+    }
+    if (cv >= 2) {
+      return [
+        "今天重点是有氧底子。",
+        "对应 800 米的有氧能力。800 米不是靠它夺冠，但没有它，后面质量课顶不住。",
+      ];
+    }
+    if (mech >= 2 && mech >= peak) {
+      return [
+        "今天重点是跑量和腿上的受力，不是把速度练快。",
+        "这不是 800 米六维里的某一项专项能力，而是机械暴露。腿承受住了，后面才练得动绝对速度和速度耐力。",
+      ];
+    }
+    const byPrimary = {
+      NM: [
+        "今天主要压力在神经肌肉上。",
+        "对应 800 米的绝对速度。",
+      ],
+      MET: [
+        "今天主要压力在代谢上。",
+        "对应 800 米的末段乳酸能力，也常带着中段速度耐力。",
+      ],
+      CV: [
+        "今天主要压力在心血管上。",
+        "对应 800 米的有氧能力或 VO₂max，看这堂课吃得深不深。",
+      ],
+      MECH: [
+        "今天主要压力在机械暴露上。",
+        "它不是 800 米专项能力本身，但会影响你后面能不能把速度和速度耐力练出来。",
+      ],
+    };
+    return byPrimary[primary] || [
+      "今天有一定刺激，但专项指向不算特别尖。",
+      "先对照 800 米的绝对速度、中段速度耐力和末段乳酸能力来想这堂课。",
+    ];
   }
 
   function coachBrief(scored, log) {
@@ -559,22 +1011,25 @@
     if (status === "skipped") {
       return {
         how: [
-          "今天跳过了训练，没有可评的四维负荷。",
-          "跳过本身可以，但不要第二天硬补一堂更重的来「还债」。",
+          "今天没练。没事，别第二天硬补一堂更狠的来还债。",
         ],
-        improve: ["如果是疲劳、睡眠或时间问题，在备注里写一句原因，后面看趋势会更有用。"],
+        focus: [
+          "今天没有专项刺激。",
+          "800 米的绝对速度、中段速度耐力、末段乳酸能力，今天都谈不上练到。",
+        ],
+        improve: ["要是累了、没睡好或没时间，备注里写一句，后面回头看会清楚很多。"],
         next: [
-          "后面仍按原计划走即可；若连续跳过两天以上，再考虑把质量课顺延，而不是加量补课。",
-          "这是教练语言参考，不会自动改课表。",
+          "后面还是按原计划走。连续两天以上没练，再把质量课往后挪就行，别加量补课。",
         ],
       };
     }
 
     if (!scored || !scored.ok) {
       return {
-        how: ["还没有足够的时长、距离或间歇结构，暂时评不了今天练到什么程度。"],
-        improve: ["先把时长和距离填上。如果是间歇课，尽量补组数、单组距离、大概成绩和组间休息。"],
-        next: ["数据齐了之后，这里会给出后续强度怎么排的参考。现在先按原计划执行即可。"],
+        how: ["时长、距离或间歇结构还不够，今天练到哪一档我先不下判断。"],
+        focus: ["还看不清今天主攻 800 米的哪一项。", "先把课记全，重点才能说准。"],
+        improve: ["先把时长和距离写上。间歇课的话，组数、每组大概多长、成绩和组间休息补一下就行。"],
+        next: ["记全了这里会帮你看后面强度怎么排。现在按原计划练就好。"],
       };
     }
 
@@ -587,52 +1042,53 @@
     const planned = log && log.planned_title ? String(log.planned_title).trim() : "";
 
     how.push(degreeHeadline(levels));
-    if (planned) how.push(`对照计划「${planned}」来看。`);
-    if (status === "partial") how.push("课没有完全完成，实际刺激可能比计划浅一些。");
-    else if (status === "pending") how.push("日志还没记成完成，下面先按当前填写给粗参考。");
-    how.push(
-      `主要压力在${names[scored.primaryStress] || scored.primaryStress}。四维参考：心血管${lv("CV")}、代谢${lv("MET")}、神经肌肉${lv("NM")}、机械暴露${lv("MECH")}。`
-    );
+    if (planned) how.push(`对照今天计划的「${planned}」。`);
+    if (status === "partial") how.push("课没跑完，实际刺激可能比计划浅一点。");
+    else if (status === "pending") how.push("还没标成完成，下面先按你现在填的给个粗感觉。");
     how.push(sessionKindLine(levels));
+    how.push(
+      `四维大概是：心血管${lv("CV")}、代谢${lv("MET")}、神经肌肉${lv("NM")}、机械暴露${lv("MECH")}。`
+    );
+    const focus = eightHundredFocus(levels, scored.primaryStress);
     if (scored.overallConfidenceBand === "low") {
-      how.push("这次记录不够完整，上面判断只能当粗参考，不要看得太精确。");
+      how.push("今天记得不太全，上面只能当个大概，别抠得太细。");
     }
 
     const rpe = log && Number(log.rpe);
     if (rpe >= 16) {
-      how.push(`你填的 RPE ${rpe} 偏高，说明主观吃力，但不拿它改四维分数。`);
+      how.push(`你填的 RPE 是 ${rpe}，自己也觉得挺吃力。这个不改分数，就当身体在说话。`);
     } else if (rpe > 0 && rpe <= 9 && levelRank(levels.MET) >= 2) {
-      how.push(`结构上看有质量刺激，但 RPE ${rpe} 偏低，可能跑得比较从容，或强度没完全落到纸面结构上。`);
+      how.push(`结构上看有质量，但 RPE 才 ${rpe}，可能跑得挺从容，或者纸面上的强度没完全跑出来。`);
     }
     if (log && (log.feeling === "tired" || log.feeling === "bad")) {
-      how.push("主观感受偏疲，后续安排应比分数看起来更保守一点。");
+      how.push("你自己也觉得累，后面安排要比分数看起来再收一点。");
     } else if (log && log.feeling === "great" && Math.max(levelRank(levels.NM), levelRank(levels.MET)) >= 2) {
-      how.push("状态很好，但今天已经有质量刺激，不要因为感觉好就临时加组。");
+      how.push("状态不错，但今天已经有质量了，别因为感觉好就临时加组。");
     }
     if (scored.heatHot) {
-      how.push("你标记了今日天气较热：同样配速时，主观疲劳和次日恢复通常会比分数看起来更重。热负荷只作参考，没有改四维分数。");
+      how.push("你标了今天热。同样配速通常会更累，第二天恢复也慢一些。这个只作参考，没有改分数。");
     }
 
     const improve = [];
     if (flags.collapsedAverage) {
-      improve.push("这堂课看起来像间歇，但结构记得不完整。下次尽量补组数、单组距离、大概成绩和组间休息，判断会准很多。");
+      improve.push("这堂像间歇，但结构记得不全。下次把组数、每组距离、大概成绩和组间休息补上，会准很多。");
     }
     if (flags.missingRest || flags.recoveryUnknown) {
-      improve.push("组间恢复不要空着，也不要当成 0 秒。写大约多久、走停还是慢跑即可。");
+      improve.push("组间休息别空着，也别当成 0 秒。大概多久、是走停还是慢跑，写一下就行。");
     }
     if (scored.athleteTimesIncomplete) {
-      improve.push("成绩档案请补 400m 和 5000m，速度锚点会更稳。");
+      improve.push("成绩档案里把 400 米和 5000 米补上，速度锚点会稳一些。");
     }
     if (flags.missingHr) {
-      improve.push("有平均心率的话建议填上，心血管这一维会更有底。");
+      improve.push("有平均心率的话填上，心血管这一维更踏实。");
     }
     const lowDims = DIMS.filter((d) => scored.dimConfidenceBand && scored.dimConfidenceBand[d] === "low")
       .map((d) => names[d]);
     if (lowDims.length) {
-      improve.push(`${lowDims.join("、")} 置信度偏低，先别把那一维看得太精确。`);
+      improve.push(`${lowDims.join("、")} 今天把握不大，先别把那一维看得太准。`);
     }
     if (!improve.length) {
-      improve.push("这次记录已经够用来做参考，保持这样记即可。");
+      improve.push("这次记得挺清楚，继续这样记就好。");
     }
 
     const next = [];
@@ -642,28 +1098,27 @@
     const mech = levelRank(levels.MECH);
     const peak = Math.max(cv, met, nm, mech);
     if (scored.overallConfidenceBand === "low") {
-      next.push("置信度偏低时，不要据此大幅改后面的课表，先把记录补全。");
+      next.push("记录还不完整时，先别大幅改后面的课，把今天记全更要紧。");
     }
     if (nm >= 3 || (nm >= 2 && mech >= 2)) {
-      next.push("后面 24–48 小时更适合轻松跑或技术，不建议连排短冲或高强度速度课。");
-      next.push("下一堂质量课至少隔开一天；质量课本身不必加量。");
+      next.push("接下来一两天适合轻松跑或技术，别连着排短冲或很狠的速度课。");
+      next.push("下一堂质量课至少隔一天，课本身也不用加量。");
     } else if (met >= 2 && cv >= 2) {
-      next.push("今晚优先睡眠和补液。明天适合轻松有氧，不要连着再上同样的重复跑。");
-      next.push("若计划里明天已是质量课，建议降成有氧，或把强度课往后挪一天。需要改课时，在计划页手动调整。");
+      next.push("今晚好好睡、把水补上。明天轻松有氧就行，别连着再上同样的重复跑。");
+      next.push("如果计划里明天已经是质量课，改成有氧，或把强度课往后挪一天。要改课去计划页自己调一下。");
     } else if (cv >= 2 || met >= 2) {
-      next.push("次日适合轻松跑或技术课，不建议马上再叠一堂同样强度。");
-      next.push("后面的质量课可按原计划上，但不要临时加组或把配速再往上拧。");
+      next.push("明天轻松跑或技术就好，别马上再叠同样强度。");
+      next.push("后面的质量课可以按原计划上，但别临时加组，也别把配速再拧上去。");
     } else if (peak >= 2) {
-      next.push("明天以轻松跑为主即可。后面仍可按原计划上质量课，不要临时加量。");
+      next.push("明天轻松跑为主。后面质量课按计划上就行，别临时加量。");
     } else {
-      next.push("这次刺激不深，可按原计划推进，注意睡眠即可。");
+      next.push("今天刺激不深，按原计划往下走就行，睡好觉。");
     }
     if (log && (log.feeling === "tired" || log.feeling === "bad") && peak >= 2) {
-      next.push("因为今天已经偏累，后面 48 小时宁可少练一点，也不要靠感觉好就加课。");
+      next.push("今天已经偏累了，后面两天宁可少练一点，别靠感觉好就加课。");
     }
-    next.push("以上是教练语言参考，四维负荷只作对照，不会自动改课表。");
 
-    return { how, improve, next };
+    return { focus, how, improve, next };
   }
 
   function renderCoachCardHtml(scored, log) {
@@ -674,12 +1129,13 @@
         ${(lines || []).map((line) => `<p>${escapeText(line)}</p>`).join("")}
       </div>`;
     return `<article class="panel load-v2-coach" id="loadV2Coach">
-      <p class="load-v2-kicker">教练点评 · Beta</p>
-      <h3>今天这堂课怎么看</h3>
-      ${block("今日程度", brief.how)}
-      ${block("可改进", brief.improve)}
-      ${block("后续安排", brief.next)}
-      <p class="load-v2-disclaimer">展示建议，不改四维公式，也不自动改课表。</p>
+      <p class="load-v2-kicker">教练怎么看</p>
+      <h3>今天这堂课</h3>
+      ${block("今天练的是什么", brief.focus)}
+      ${block("今天怎么样", brief.how)}
+      ${block("下次记的时候", brief.improve)}
+      ${block("接下来几天", brief.next)}
+      <p class="load-v2-disclaimer">这是给训练的参考，不会改分数，也不会自动改课表。</p>
     </article>`;
   }
 
@@ -769,6 +1225,10 @@
     parseRepTimeField,
     parseRecoveryField,
     confidenceBand,
+    applyAuxSkipVisibility,
+    mountComboBuilder,
+    formatComboGroupsSummary,
+    exampleComboGroups,
   };
 
   if (typeof module === "object" && module.exports) {

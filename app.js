@@ -5282,23 +5282,23 @@ async function renderDayFeedback(log, planned, context) {
   const feedback = [];
 
   if (log.status === "skipped") {
-    feedback.push("今天跳过了训练。如果连续 2 天以上跳过，建议调整课表或降低负荷。");
+    feedback.push("今天没练。连续两天以上跳过的话，把课表收一收或把质量课往后挪就好。");
   } else if (log.status === "completed" || log.status === "partial") {
     if (log.rpe) {
       const rpe = Number(log.rpe);
       if (rpe >= 16 && log.status === "completed") {
-        feedback.push(`RPE ${rpe} 偏高，说明这节课对你来说比较吃力。如果连续几次都偏高，建议降低强度或增加恢复。`);
+        feedback.push(`RPE ${rpe}，这节课对你来说挺吃力。要是连续几次都这么高，强度收一点，或者多留点恢复。`);
       } else if (rpe <= 9 && log.status === "completed") {
-        feedback.push(`RPE ${rpe} 较低，训练较为轻松，可考虑在状态好的时候适度上调强度。`);
+        feedback.push(`RPE ${rpe}，今天挺从容。状态好的时候可以稍微把强度往上一点，但别一次拧太狠。`);
       }
     }
     if (log.feeling === "bad" || log.feeling === "tired") {
-      feedback.push("主观感受偏疲累，明天可降低负荷或改为轻松跑 + 拉伸。");
+      feedback.push("你自己也觉得累，明天轻松跑加拉伸就行，别接着上强度。");
     } else if (log.feeling === "great") {
-      feedback.push("状态很好！可以按计划推进，但不要冲到力竭。");
+      feedback.push("状态不错，按计划往下走就好，别冲到力竭。");
     }
     if (log.status === "partial") {
-      feedback.push("部分完成：记录好跳过的部分，下一次同类训练课可以补回。");
+      feedback.push("今天没跑完。记下跳过的部分，下次同类课再补，别第二天硬加一堂。");
     }
   }
 
