@@ -2022,15 +2022,6 @@ function getPhoneWorkerUrl() {
   return String(raw || "").replace(/\/$/, "");
 }
 
-function authStartWeChat() {
-  const workerUrl = getPhoneWorkerUrl();
-  if (!workerUrl) {
-    throw new Error("微信登录尚未开通。需要先注册微信开放平台，并部署登录服务。");
-  }
-  const back = `${location.origin}${location.pathname}#/auth`;
-  location.href = `${workerUrl}/wechat/start?redirect=${encodeURIComponent(back)}`;
-}
-
 async function consumeAuthCallback() {
   const params = new URLSearchParams(location.search);
   const err = params.get("nl_auth_error");
@@ -3649,10 +3640,6 @@ async function renderAuthPage(app, user) {
             <p class="auth-hint">输入手机号 → 发送验证码 → 输入验证码即可登录/注册。短信开通前会提示尚未配置。</p>
           </form>
         </div>
-
-        <div class="auth-split"><span>或</span></div>
-        <button type="button" class="wechat-login-btn" id="wechatLoginBtn">微信登录</button>
-        <p class="auth-hint">微信登录是扫码登录。请在系统浏览器里用，不要在微信内置浏览器里点。Android 应用里的微信一键登录要等开放平台移动应用批下来再接。</p>
       </div>
     </section>
   `;
@@ -3696,14 +3683,6 @@ async function renderAuthPage(app, user) {
   methodPhone.addEventListener("click", () => setMethod("phone"));
   tabSignin.addEventListener("click", () => setMode("signin"));
   tabSignup.addEventListener("click", () => setMode("signup"));
-
-  document.getElementById("wechatLoginBtn")?.addEventListener("click", () => {
-    try {
-      authStartWeChat();
-    } catch (err) {
-      showToast(err.message || "微信登录失败", "error");
-    }
-  });
 
   // 发送邮箱验证码
   const sendEmailOtpBtn = document.getElementById("sendEmailOtpBtn");
