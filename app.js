@@ -1955,7 +1955,7 @@ async function authVerifyEmail(email, token) {
   return data;
 }
 
-/* ---- 手机号 OTP 认证模块（通过腾讯云短信 + Cloudflare Workers 桥接） ---- */
+/* ---- 手机号 OTP 认证模块（阿里云短信认证 + Cloudflare Workers 桥接） ---- */
 
 // 从 Worker 发送验证码到手机号
 async function authSendPhoneOTP(phone) {
@@ -1991,25 +1991,75 @@ async function authVerifyPhone(phone, token) {
   if (!resp.ok || result.error) {
     throw new Error(result.error || "验证码错误");
   }
-  // 验证通过后，用 Worker 返回的签名信息在客户端完成 Supabase 登录
-  if (result.supabase_token) {
-    // Worker 已通过 admin API 创建/登录用户，返回了 session token
-    const client = initSupabase();
+  const client = initSupabase();
+  if (result.supabase_token && result.supabase_token.access_token && result.supabase_token.refresh_token) {
     const { data, error } = await client.auth.setSession({
       access_token: result.supabase_token.access_token,
       refresh_token: result.supabase_token.refresh_token
     });
     if (error) throw error;
+    if (!data || !data.session) throw new Error("登录未完成，请重试");
     return data;
   }
-  return result;
+  if (result.token_hash) {
+    const { data, error } = await client.auth.verifyOtp({
+      token_hash: result.token_hash,
+      type: "magiclink",
+    });
+    if (error) throw error;
+    if (!data || !data.session) throw new Error("登录未完成，请重试");
+    return data;
+  }
+  throw new Error("登录服务没有返回登录凭证");
 }
 
 // 读取 Worker URL（从 supabase-config.js 或全局变量）
 function getPhoneWorkerUrl() {
-  if (typeof PHONE_WORKER_URL !== "undefined") return PHONE_WORKER_URL;
-  if (window.PHONE_WORKER_URL) return window.PHONE_WORKER_URL;
-  return "";
+  const raw =
+    (typeof PHONE_WORKER_URL !== "undefined" && PHONE_WORKER_URL) ||
+    window.PHONE_WORKER_URL ||
+    "";
+  return String(raw || "").replace(/\/$/, "");
+}
+
+function authStartWeChat() {
+  const workerUrl = getPhoneWorkerUrl();
+  if (!workerUrl) {
+    throw new Error("微信登录尚未开通。需要先注册微信开放平台，并部署登录服务。");
+  }
+  const back = `${location.origin}${location.pathname}#/auth`;
+  location.href = `${workerUrl}/wechat/start?redirect=${encodeURIComponent(back)}`;
+}
+
+async function consumeAuthCallback() {
+  const params = new URLSearchParams(location.search);
+  const err = params.get("nl_auth_error");
+  const tokenHash = params.get("nl_token_hash");
+  if (!err && !tokenHash) return;
+  const clean = () => {
+    params.delete("nl_auth_error");
+    params.delete("nl_token_hash");
+    params.delete("nl_login");
+    const q = params.toString();
+    history.replaceState({}, "", location.pathname + (q ? `?${q}` : "") + location.hash);
+  };
+  if (err) {
+    showToast(decodeURIComponent(err), "error");
+    clean();
+    return;
+  }
+  if (!tokenHash || !isSupabaseReady()) {
+    clean();
+    return;
+  }
+  const client = initSupabase();
+  const { error } = await client.auth.verifyOtp({
+    token_hash: tokenHash,
+    type: "magiclink",
+  });
+  clean();
+  if (error) throw error;
+  showToast("登录成功", "success");
 }
 
 async function authSignOut() {
@@ -3596,9 +3646,13 @@ async function renderAuthPage(app, user) {
               <button type="button" class="secondary-button otp-btn" id="sendPhoneOtpBtn">发送验证码</button>
             </div>
             <button class="primary-button full" type="submit" id="submitPhone">验证码登录</button>
-            <p class="auth-hint">输入手机号 → 发送验证码 → 输入验证码即可登录/注册。无需记密码。</p>
+            <p class="auth-hint">输入手机号 → 发送验证码 → 输入验证码即可登录/注册。短信开通前会提示尚未配置。</p>
           </form>
         </div>
+
+        <div class="auth-split"><span>或</span></div>
+        <button type="button" class="wechat-login-btn" id="wechatLoginBtn">微信登录</button>
+        <p class="auth-hint">微信登录是扫码登录。请在系统浏览器里用，不要在微信内置浏览器里点。Android 应用里的微信一键登录要等开放平台移动应用批下来再接。</p>
       </div>
     </section>
   `;
@@ -3642,6 +3696,14 @@ async function renderAuthPage(app, user) {
   methodPhone.addEventListener("click", () => setMethod("phone"));
   tabSignin.addEventListener("click", () => setMode("signin"));
   tabSignup.addEventListener("click", () => setMode("signup"));
+
+  document.getElementById("wechatLoginBtn")?.addEventListener("click", () => {
+    try {
+      authStartWeChat();
+    } catch (err) {
+      showToast(err.message || "微信登录失败", "error");
+    }
+  });
 
   // 发送邮箱验证码
   const sendEmailOtpBtn = document.getElementById("sendEmailOtpBtn");
@@ -3778,7 +3840,9 @@ async function renderAuthPage(app, user) {
     submitPhone.disabled = true;
     submitPhone.textContent = "验证中…";
     try {
-      await authVerifyPhone(fullPhone, token);
+      const data = await authVerifyPhone(fullPhone, token);
+      currentUser = (data && data.session && data.session.user) || currentUser;
+      renderNavAuth();
       showToast("登录成功", "success");
       navigate("/");
     } catch (err) {
@@ -6325,6 +6389,12 @@ async function triggerPWAInstall() {
 function bootstrap() {
   initSupabase();
 
+  const afterAuthReady = () => {
+    window.addEventListener("hashchange", router);
+    renderNavAuth();
+    router();
+  };
+
   if (isSupabaseReady()) {
     const client = supabaseClient;
     client.auth.onAuthStateChange((_event, session) => {
@@ -6332,19 +6402,18 @@ function bootstrap() {
       renderNavAuth();
       router();
     });
-    // 首次手动获取会话，避免某些环境下 onAuthStateChange 延迟
-    client.auth.getSession().then(({ data }) => {
-      currentUser = data.session?.user || null;
-      renderNavAuth();
-      router();
-    });
+    consumeAuthCallback()
+      .catch((err) => showToast(err.message || "登录回调失败", "error"))
+      .finally(() => {
+        client.auth.getSession().then(({ data }) => {
+          currentUser = data.session?.user || null;
+          afterAuthReady();
+        });
+      });
   } else {
     currentUser = null;
-    renderNavAuth();
-    router();
+    afterAuthReady();
   }
-
-  window.addEventListener("hashchange", router);
 }
 
 if (document.readyState === "loading") {
