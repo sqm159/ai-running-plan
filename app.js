@@ -2013,6 +2013,28 @@ async function authVerifyPhone(phone, token) {
   throw new Error("登录服务没有返回登录凭证");
 }
 
+async function authDeleteAccount() {
+  const workerUrl = getPhoneWorkerUrl();
+  if (!workerUrl) throw new Error("删除账户服务尚未配置");
+  const client = initSupabase();
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  if (sessionError) throw sessionError;
+  const access = sessionData && sessionData.session && sessionData.session.access_token;
+  if (!access) throw new Error("请先登录");
+  const resp = await fetch(workerUrl + "/delete-account", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + access,
+    },
+  });
+  const result = await resp.json().catch(() => ({}));
+  if (!resp.ok || result.error) {
+    throw new Error(result.error || "删除账户失败");
+  }
+  await client.auth.signOut();
+}
+
 // 读取 Worker URL（从 supabase-config.js 或全局变量）
 function getPhoneWorkerUrl() {
   const raw =
@@ -3212,6 +3234,7 @@ function summarizeLoad(logs) {
 const ROUTES = {
   "/": renderDashboardPage,
   "/auth": renderAuthPage,
+  "/privacy": renderPrivacyPage,
   "/profile": renderProfilePage,
   "/performance": renderPerformancePage,
   "/analysis": renderAnalysisPage,
@@ -3539,6 +3562,34 @@ function renderLanding(app) {
   `;
 }
 
+/* ---- 隐私政策（应用内） ---- */
+function renderPrivacyPage(app) {
+  app.innerHTML = `
+    <section class="page legal-page">
+      <div class="page-head">
+        <p class="eyebrow">Privacy</p>
+        <h2>隐私政策</h2>
+      </div>
+      <p>本政策适用于 NextLap 网站、PWA 与 Android 应用。生效日期：2026 年 8 月 24 日。</p>
+      <h3>我们收集什么</h3>
+      <p>你注册或登录时，我们会保存邮箱，或把手机号做成内部账号标识。你主动填写的运动档案（如昵称、年龄、身高、体重、训练目标），以及成绩、训练日志、能力分析和导入的运动文件，也会保存在你的账户下。</p>
+      <h3>这些数据用来做什么</h3>
+      <p>只用于提供训练记录、能力分析和训练计划，以及完成登录验证。我们不会把你的训练数据卖给第三方，也不会用它投放广告。</p>
+      <h3>谁会处理这些数据</h3>
+      <ul>
+        <li>Supabase：保存账户和训练数据。</li>
+        <li>阿里云号码认证（短信认证）：向你的手机发送登录验证码。</li>
+        <li>Cloudflare：中转登录验证，不把验证码写进网站前端。</li>
+      </ul>
+      <h3>你怎么删除数据</h3>
+      <p>登录后打开「运动档案」，点「删除账户」。删除后，账户和训练数据会被清除，且不能恢复。</p>
+      <h3>未成年人</h3>
+      <p>本应用面向有自主训练需求的跑者，不面向 14 周岁以下儿童。</p>
+      <p><a href="./privacy.html">打开完整网页版隐私政策</a>（提交应用到商店时也使用这一页）。</p>
+    </section>
+  `;
+}
+
 /* ---- 认证页 ---- */
 async function renderAuthPage(app, user) {
   if (user) {
@@ -3833,6 +3884,59 @@ async function renderAuthPage(app, user) {
   });
 }
 
+function openDeleteAccountModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3>删除账户</h3>
+        <button class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc">将删除账户、运动档案、成绩、训练日志和分析计划，不能恢复。请输入「删除账户」确认。</p>
+        <label>
+          确认文字
+          <input id="deleteAccountConfirm" type="text" placeholder="删除账户" autocomplete="off" />
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button class="ghost-button" id="deleteAccountCancel">取消</button>
+        <button class="danger-button" id="deleteAccountConfirmBtn">确认删除</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.querySelector(".modal-close").addEventListener("click", close);
+  overlay.querySelector("#deleteAccountCancel").addEventListener("click", close);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) close();
+  });
+  overlay.querySelector("#deleteAccountConfirmBtn").addEventListener("click", async () => {
+    const typed = String(document.getElementById("deleteAccountConfirm").value || "").trim();
+    if (typed !== "删除账户") {
+      showToast("请输入「删除账户」以确认", "error");
+      return;
+    }
+    const btn = overlay.querySelector("#deleteAccountConfirmBtn");
+    btn.disabled = true;
+    btn.textContent = "删除中…";
+    try {
+      await authDeleteAccount();
+      currentUser = null;
+      renderNavAuth();
+      close();
+      showToast("账户已删除", "success");
+      navigate("/");
+    } catch (err) {
+      showToast(err.message || "删除失败", "error");
+      btn.disabled = false;
+      btn.textContent = "确认删除";
+    }
+  });
+}
+
 /* ---- 运动档案页 ---- */
 async function renderProfilePage(app, user) {
   app.innerHTML = `<div class="page"><div class="loading">加载中…</div></div>`;
@@ -3914,6 +4018,12 @@ async function renderProfilePage(app, user) {
         <button class="primary-button full" type="submit" id="profileSubmit">保存运动档案</button>
         <p class="form-note">档案会保存到你的账户，并在能力分析时自动填充目标项目与目标成绩。</p>
       </form>
+
+      <section class="account-danger">
+        <h3>账户与数据</h3>
+        <p>删除账户会立刻注销登录，并删除运动档案、成绩、训练日志和分析计划。此操作不能恢复。</p>
+        <button type="button" class="danger-button" id="deleteAccountBtn">删除账户</button>
+      </section>
     </section>
   `;
 
@@ -3946,6 +4056,10 @@ async function renderProfilePage(app, user) {
       btn.disabled = false;
       btn.textContent = "保存运动档案";
     }
+  });
+
+  document.getElementById("deleteAccountBtn")?.addEventListener("click", () => {
+    openDeleteAccountModal();
   });
 }
 
