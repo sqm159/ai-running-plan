@@ -44,7 +44,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:image" content="./logo.png" />
 
-  <link rel="stylesheet" href="./styles.css?v=50" />
+  <link rel="stylesheet" href="./styles.css?v=51" />
 </head>
 <body>
   <header class="topbar">
@@ -61,7 +61,6 @@
         <a href="#/plan" data-route="/plan">训练计划</a>
         <a href="#/calendar" data-route="/calendar">训练日历</a>
         <a href="#/logs" data-route="/logs">训练日志</a>
-        <a href="#/sync" data-route="/sync">数据同步</a>
       </div>
       <div class="nav-auth" id="navAuth"><!-- 由 app.js 根据登录状态渲染 --></div>
     </nav>
@@ -77,8 +76,6 @@
 
   <!-- Supabase JS SDK（CDN，暴露 window.supabase.createClient） -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Fit/FIT 二进制解析器（Garmin 等运动手表的标准活动文件格式） -->
-  <script src="https://cdn.jsdelivr.net/npm/fit-file-parser@1.6.0/dist/fit-file-parser.min.js"></script>
   <!-- Supabase 配置（URL + anon key，需自行填写） -->
   <script src="./supabase-config.js"></script>
   <!-- Training Load V2 · Beta (verified prototype scorer, then App adapter) -->
@@ -87,7 +84,7 @@
   <script src="./prototypes/training-load-v2-incomplete.js?v=2"></script>
   <script src="./js/training-load-v2-app.js?v=10"></script>
   <!-- 应用主逻辑 -->
-  <script src="./app.js?v=52"></script>
+  <script src="./app.js?v=53"></script>
 
   <!-- PWA: Service Worker 注册（localhost 手测时关闭，避免缓存旧脚本） -->
   <script>
